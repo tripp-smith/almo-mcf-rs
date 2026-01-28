@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.7"]
+build-backend = "maturin"
+
+[project]
+name = "almo-mcf"
+version = "0.1.0"
+description = "Almost-linear minimum-cost flow (Python + Rust)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "License :: OSI Approved :: MIT License",
+]
+
+[tool.maturin]
+manifest-path = "rust/crates/almo-mcf-py/Cargo.toml"
+python-source = "python"
+module-name = "almo_mcf"

@@ -1,0 +1,16 @@
+[package]
+name = "almo-mcf-py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "almo_mcf"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+
+[features]
+abi3 = ["pyo3/abi3"]
+abi3-py310 = ["pyo3/abi3-py310", "abi3"]

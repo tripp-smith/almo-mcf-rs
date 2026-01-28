@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/almo-mcf-core",
+  "crates/almo-mcf-py",
 ]
 
 [workspace.package]
