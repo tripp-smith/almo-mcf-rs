@@ -5,10 +5,12 @@ edition = "2021"
 license = "MIT"
 
 [lib]
-name = "almo_mcf"
+name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+almo-mcf-core = { path = "../almo-mcf-core" }
+numpy = "0.22"
 pyo3 = { version = "0.22", features = ["extension-module"] }
 
 [features]
