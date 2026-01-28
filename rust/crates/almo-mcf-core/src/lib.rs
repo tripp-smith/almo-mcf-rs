@@ -238,7 +238,7 @@ pub fn min_cost_flow_exact(
 
     let mut demand = problem.demand.clone();
     let mut residual_upper = vec![0_i64; m];
-    for i in 0..m {
+    for (i, residual) in residual_upper.iter_mut().enumerate() {
         let lo = problem.lower[i];
         let up = problem.upper[i];
         if lo > up {
@@ -246,7 +246,7 @@ pub fn min_cost_flow_exact(
                 "lower bound exceeds upper bound".to_string(),
             ));
         }
-        residual_upper[i] = up - lo;
+        *residual = up - lo;
         let tail = problem.tail[i] as usize;
         let head = problem.head[i] as usize;
         demand[tail] = demand[tail].saturating_add(lo);
@@ -259,8 +259,7 @@ pub fn min_cost_flow_exact(
     let mut mcf = MinCostFlow::new(total_nodes);
     let mut edge_refs = Vec::with_capacity(m);
 
-    for i in 0..m {
-        let cap = residual_upper[i];
+    for (i, &cap) in residual_upper.iter().enumerate() {
         if cap < 0 {
             return Err(McfError::InvalidInput(
                 "negative residual capacity".to_string(),
