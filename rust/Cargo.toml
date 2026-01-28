@@ -8,5 +8,4 @@ members = [
 edition = "2021"
 license = "MIT"
 
-[workspace.dependencies]
-rayon = "1.8"
+#[workspace.dependencies]

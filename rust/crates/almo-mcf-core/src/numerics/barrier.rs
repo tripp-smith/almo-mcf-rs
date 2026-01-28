@@ -1,5 +1,3 @@
-use rayon::prelude::*;
-
 #[inline]
 fn clamp_min(value: f64, min_value: f64) -> f64 {
     if value < min_value {
@@ -67,11 +65,23 @@ pub fn barrier_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, m
 
     #[cfg(feature = "parallel")]
     {
-        upper_delta
-            .par_iter()
-            .zip(lower_delta.par_iter())
-            .map(|(upper_d, lower_d)| barrier_term(*upper_d, alpha) + barrier_term(*lower_d, alpha))
-            .collect()
+        let mut output = vec![0.0; upper_delta.len()];
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let chunk_size = (upper_delta.len() + threads - 1) / threads;
+        std::thread::scope(|scope| {
+            for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
+                let start = chunk_index * chunk_size;
+                let end = start + out_chunk.len();
+                let upper_chunk = &upper_delta[start..end];
+                let lower_chunk = &lower_delta[start..end];
+                scope.spawn(move || {
+                    for ((out, upper_d), lower_d) in out_chunk.iter_mut().zip(upper_chunk.iter()).zip(lower_chunk.iter()) {
+                        *out = barrier_term(*upper_d, alpha) + barrier_term(*lower_d, alpha);
+                    }
+                });
+            }
+        });
+        output
     }
 
     #[cfg(not(feature = "parallel"))]
@@ -92,15 +102,25 @@ pub fn barrier_gradient(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, 
 
     #[cfg(feature = "parallel")]
     {
-        upper_delta
-            .par_iter()
-            .zip(lower_delta.par_iter())
-            .map(|(upper_d, lower_d)| {
-                let upper_term = -barrier_term_derivative(*upper_d, alpha);
-                let lower_term = barrier_term_derivative(*lower_d, alpha);
-                upper_term + lower_term
-            })
-            .collect()
+        let mut output = vec![0.0; upper_delta.len()];
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let chunk_size = (upper_delta.len() + threads - 1) / threads;
+        std::thread::scope(|scope| {
+            for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
+                let start = chunk_index * chunk_size;
+                let end = start + out_chunk.len();
+                let upper_chunk = &upper_delta[start..end];
+                let lower_chunk = &lower_delta[start..end];
+                scope.spawn(move || {
+                    for ((out, upper_d), lower_d) in out_chunk.iter_mut().zip(upper_chunk.iter()).zip(lower_chunk.iter()) {
+                        let upper_term = -barrier_term_derivative(*upper_d, alpha);
+                        let lower_term = barrier_term_derivative(*lower_d, alpha);
+                        *out = upper_term + lower_term;
+                    }
+                });
+            }
+        });
+        output
     }
 
     #[cfg(not(feature = "parallel"))]
@@ -120,7 +140,13 @@ pub fn barrier_gradient(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_relative_eq;
+    fn assert_close(lhs: f64, rhs: f64, epsilon: f64) {
+        let diff = (lhs - rhs).abs();
+        assert!(
+            diff <= epsilon,
+            "expected {lhs} and {rhs} to be within {epsilon}, diff={diff}"
+        );
+    }
 
     fn serial_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> Vec<f64> {
         flow.iter()
@@ -160,7 +186,7 @@ mod tests {
         let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
-            assert_relative_eq!(a, b, epsilon = 1e-12);
+            assert_close(*a, *b, 1e-12);
         }
     }
 
@@ -176,7 +202,7 @@ mod tests {
         let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
-            assert_relative_eq!(a, b, epsilon = 1e-12);
+            assert_close(*a, *b, 1e-12);
         }
     }
 
