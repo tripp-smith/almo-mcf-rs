@@ -1,0 +1,13 @@
+[package]
+name = "almo-mcf-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+
+[features]
+parallel = []
+simd = []
+
+[dev-dependencies]
