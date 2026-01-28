@@ -64,7 +64,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install maturin pytest
       - name: Build extension
-        run: maturin build --release --manifest-path rust/Cargo.toml --out dist
+        run: maturin build --release --out dist
       - name: Install wheel
         run: pip install dist/*.whl
       - name: Run tests

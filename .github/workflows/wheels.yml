@@ -27,7 +27,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.20.0
         env:
-          CIBW_PROJECT_PATH: rust
+          CIBW_PROJECT_PATH: .
           CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
           CIBW_BUILD_VERBOSITY: 1
           CIBW_BUILD_FRONTEND: build
@@ -38,7 +38,7 @@ jobs:
           CIBW_TEST_COMMAND: pytest -q tests/test_correctness_small.py
           CIBW_BUILD_SDIST: '1'
         with:
-          package-dir: rust
+          package-dir: .
           output-dir: dist
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
