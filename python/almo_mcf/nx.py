@@ -6,7 +6,9 @@ available.
 """
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Tuple
+
+import numpy as np
 
 
 def _load_core():
@@ -20,6 +22,33 @@ def _load_core():
     return _core
 
 
+def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]:
+    if G.is_multigraph():
+        raise ValueError("MultiDiGraph is not supported yet.")
+    nodes = list(G.nodes())
+    index = {node: idx for idx, node in enumerate(nodes)}
+    n = len(nodes)
+    demand = [0] * n
+    for node, idx in index.items():
+        demand[idx] = int(G.nodes[node].get("demand", 0))
+    tails = []
+    heads = []
+    lower = []
+    upper = []
+    cost = []
+    edges = list(G.edges(data=True))
+    for u, v, data in edges:
+        tails.append(index[u])
+        heads.append(index[v])
+        lower.append(int(data.get("lower_capacity", 0)))
+        if "capacity" not in data:
+            raise ValueError("Each edge must specify a finite capacity.")
+        upper.append(int(data["capacity"]))
+        edge_cost = data.get("weight", data.get("cost", 0))
+        cost.append(int(edge_cost))
+    return tails, heads, lower, upper, cost, demand, index, edges
+
+
 def min_cost_flow(G) -> Dict:
     """Return a min-cost flow dict in NetworkX format.
 
@@ -27,10 +56,27 @@ def min_cost_flow(G) -> Dict:
         G: NetworkX DiGraph with demand and capacity attributes.
     """
     core = _load_core()
-    return core.min_cost_flow_nx(G)
+    tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
+    flow = core.min_cost_flow_edges(
+        len(index),
+        np.asarray(tails, dtype=np.int64),
+        np.asarray(heads, dtype=np.int64),
+        np.asarray(lower, dtype=np.int64),
+        np.asarray(upper, dtype=np.int64),
+        np.asarray(cost, dtype=np.int64),
+        np.asarray(demand, dtype=np.int64),
+    )
+    flow_dict: Dict = {node: {} for node in G.nodes()}
+    for (u, v, _data), f in zip(edges, flow.tolist()):
+        flow_dict[u][v] = int(f)
+    return flow_dict
 
 
 def min_cost_flow_cost(G, flow_dict: Dict) -> int:
     """Compute the total cost for a flow dict in NetworkX format."""
-    core = _load_core()
-    return core.min_cost_flow_cost_nx(G, flow_dict)
+    total = 0
+    for u, v, data in G.edges(data=True):
+        flow = flow_dict[u][v]
+        edge_cost = data.get("weight", data.get("cost", 0))
+        total += int(flow) * int(edge_cost)
+    return total
