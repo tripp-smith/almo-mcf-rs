@@ -8,7 +8,12 @@ fn clamp_min(value: f64, min_value: f64) -> f64 {
 }
 
 #[cfg(feature = "simd")]
-fn preprocess_deltas_simd(flow: &[f64], lower: &[f64], upper: &[f64], min_value: f64) -> (Vec<f64>, Vec<f64>) {
+fn preprocess_deltas_simd(
+    flow: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+    min_value: f64,
+) -> (Vec<f64>, Vec<f64>) {
     use std::simd::{Simd, SimdFloat};
 
     let lanes = 4;
@@ -39,7 +44,12 @@ fn preprocess_deltas_simd(flow: &[f64], lower: &[f64], upper: &[f64], min_value:
 }
 
 #[cfg(not(feature = "simd"))]
-fn preprocess_deltas_simd(flow: &[f64], lower: &[f64], upper: &[f64], min_value: f64) -> (Vec<f64>, Vec<f64>) {
+fn preprocess_deltas_simd(
+    flow: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+    min_value: f64,
+) -> (Vec<f64>, Vec<f64>) {
     let mut upper_delta = vec![0.0; flow.len()];
     let mut lower_delta = vec![0.0; flow.len()];
     for idx in 0..flow.len() {
@@ -57,7 +67,13 @@ fn barrier_term_derivative(delta: f64, alpha: f64) -> f64 {
     -((1.0 + alpha) / delta) * barrier_term(delta, alpha)
 }
 
-pub fn barrier_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> Vec<f64> {
+pub fn barrier_lengths(
+    flow: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+    alpha: f64,
+    min_value: f64,
+) -> Vec<f64> {
     assert_eq!(flow.len(), lower.len());
     assert_eq!(flow.len(), upper.len());
 
@@ -75,7 +91,11 @@ pub fn barrier_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, m
                 let upper_chunk = &upper_delta[start..end];
                 let lower_chunk = &lower_delta[start..end];
                 scope.spawn(move || {
-                    for ((out, upper_d), lower_d) in out_chunk.iter_mut().zip(upper_chunk.iter()).zip(lower_chunk.iter()) {
+                    for ((out, upper_d), lower_d) in out_chunk
+                        .iter_mut()
+                        .zip(upper_chunk.iter())
+                        .zip(lower_chunk.iter())
+                    {
                         *out = barrier_term(*upper_d, alpha) + barrier_term(*lower_d, alpha);
                     }
                 });
@@ -94,7 +114,13 @@ pub fn barrier_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, m
     }
 }
 
-pub fn barrier_gradient(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> Vec<f64> {
+pub fn barrier_gradient(
+    flow: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+    alpha: f64,
+    min_value: f64,
+) -> Vec<f64> {
     assert_eq!(flow.len(), lower.len());
     assert_eq!(flow.len(), upper.len());
 
@@ -112,7 +138,11 @@ pub fn barrier_gradient(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, 
                 let upper_chunk = &upper_delta[start..end];
                 let lower_chunk = &lower_delta[start..end];
                 scope.spawn(move || {
-                    for ((out, upper_d), lower_d) in out_chunk.iter_mut().zip(upper_chunk.iter()).zip(lower_chunk.iter()) {
+                    for ((out, upper_d), lower_d) in out_chunk
+                        .iter_mut()
+                        .zip(upper_chunk.iter())
+                        .zip(lower_chunk.iter())
+                    {
                         let upper_term = -barrier_term_derivative(*upper_d, alpha);
                         let lower_term = barrier_term_derivative(*lower_d, alpha);
                         *out = upper_term + lower_term;
@@ -148,7 +178,13 @@ mod tests {
         );
     }
 
-    fn serial_lengths(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> Vec<f64> {
+    fn serial_lengths(
+        flow: &[f64],
+        lower: &[f64],
+        upper: &[f64],
+        alpha: f64,
+        min_value: f64,
+    ) -> Vec<f64> {
         flow.iter()
             .zip(lower.iter())
             .zip(upper.iter())
@@ -160,7 +196,13 @@ mod tests {
             .collect()
     }
 
-    fn serial_gradient(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> Vec<f64> {
+    fn serial_gradient(
+        flow: &[f64],
+        lower: &[f64],
+        upper: &[f64],
+        alpha: f64,
+        min_value: f64,
+    ) -> Vec<f64> {
         flow.iter()
             .zip(lower.iter())
             .zip(upper.iter())
@@ -176,7 +218,13 @@ mod tests {
 
     /// Helper to compute a scalar "barrier energy" that mirrors a common usage
     /// pattern in optimization: sum the per-variable penalty terms.
-    fn barrier_energy(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> f64 {
+    fn barrier_energy(
+        flow: &[f64],
+        lower: &[f64],
+        upper: &[f64],
+        alpha: f64,
+        min_value: f64,
+    ) -> f64 {
         barrier_lengths(flow, lower, upper, alpha, min_value)
             .iter()
             .sum::<f64>()
