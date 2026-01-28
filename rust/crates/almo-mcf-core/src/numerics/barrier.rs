@@ -174,6 +174,14 @@ mod tests {
             .collect()
     }
 
+    /// Helper to compute a scalar "barrier energy" that mirrors a common usage
+    /// pattern in optimization: sum the per-variable penalty terms.
+    fn barrier_energy(flow: &[f64], lower: &[f64], upper: &[f64], alpha: f64, min_value: f64) -> f64 {
+        barrier_lengths(flow, lower, upper, alpha, min_value)
+            .iter()
+            .sum::<f64>()
+    }
+
     #[test]
     fn lengths_match_serial() {
         let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1];
@@ -219,6 +227,91 @@ mod tests {
 
         for value in lengths.iter().chain(gradient.iter()) {
             assert!(value.is_finite());
+        }
+    }
+
+    #[test]
+    fn gradient_matches_finite_difference() {
+        // This test demonstrates a practical use-case: verify that the analytic
+        // gradient matches a numerical approximation for use in gradient-based
+        // optimizers (e.g., projected gradient descent).
+        let mut flow = vec![2.5, 4.0, 6.0];
+        let lower = vec![1.0, 2.0, 4.0];
+        let upper = vec![10.0, 8.0, 9.0];
+        let alpha = 0.01;
+        let min_value = 1e-9;
+        let eps = 1e-6;
+
+        let analytic = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+
+        for idx in 0..flow.len() {
+            let original = flow[idx];
+            flow[idx] = original + eps;
+            let plus = barrier_energy(&flow, &lower, &upper, alpha, min_value);
+            flow[idx] = original - eps;
+            let minus = barrier_energy(&flow, &lower, &upper, alpha, min_value);
+            flow[idx] = original;
+
+            let numerical = (plus - minus) / (2.0 * eps);
+            assert_close(analytic[idx], numerical, 1e-6);
+        }
+    }
+
+    #[test]
+    fn barrier_penalty_increases_near_bounds() {
+        // Another usage pattern: check that constraints are enforced by a
+        // rapidly increasing penalty near bounds.
+        let lower = vec![0.0];
+        let upper = vec![10.0];
+        let alpha = 0.05;
+        let min_value = 1e-9;
+
+        let middle = barrier_lengths(&[5.0], &lower, &upper, alpha, min_value)[0];
+        let near_lower = barrier_lengths(&[0.1], &lower, &upper, alpha, min_value)[0];
+        let near_upper = barrier_lengths(&[9.9], &lower, &upper, alpha, min_value)[0];
+
+        assert!(near_lower > middle);
+        assert!(near_upper > middle);
+    }
+
+    #[test]
+    fn symmetric_bounds_have_zero_gradient_at_midpoint() {
+        // For symmetric bounds, the midpoint should yield zero gradient,
+        // illustrating how the barrier can stabilize around feasible centers.
+        let flow = vec![0.0];
+        let lower = vec![-5.0];
+        let upper = vec![5.0];
+        let alpha = 0.1;
+        let min_value = 1e-9;
+
+        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        assert_close(gradient[0], 0.0, 1e-12);
+    }
+
+    #[test]
+    fn matches_power_barrier_reference() {
+        // Compare against the closed-form "power barrier" (delta^-(1+alpha))
+        // to show equivalence with a well-known alternative formulation.
+        let flow = vec![3.0, 4.0];
+        let lower = vec![0.0, 1.0];
+        let upper = vec![10.0, 9.0];
+        let alpha = 0.2;
+        let min_value = 1e-9;
+
+        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
+        let reference: Vec<f64> = flow
+            .iter()
+            .zip(lower.iter())
+            .zip(upper.iter())
+            .map(|((f, l), u)| {
+                let upper_delta = clamp_min(u - f, min_value);
+                let lower_delta = clamp_min(f - l, min_value);
+                upper_delta.powf(-(1.0 + alpha)) + lower_delta.powf(-(1.0 + alpha))
+            })
+            .collect();
+
+        for (a, b) in lengths.iter().zip(reference.iter()) {
+            assert_close(*a, *b, 1e-12);
         }
     }
 }
