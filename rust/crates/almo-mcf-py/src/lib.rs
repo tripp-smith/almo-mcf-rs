@@ -1,7 +1,10 @@
+#![allow(clippy::useless_conversion)]
+
 use almo_mcf_core::{min_cost_flow_exact, McfOptions, McfProblem};
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 
+#[allow(clippy::too_many_arguments, clippy::useless_conversion)]
 #[pyfunction]
 fn min_cost_flow_edges(
     py: Python<'_>,
