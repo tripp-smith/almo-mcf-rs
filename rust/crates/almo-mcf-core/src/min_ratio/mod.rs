@@ -104,6 +104,24 @@ impl MinRatioOracle {
 mod tests {
     use super::*;
 
+    #[derive(Clone)]
+    struct TestRng(u64);
+
+    impl TestRng {
+        fn new(seed: u64) -> Self {
+            Self(seed)
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1);
+            self.0
+        }
+
+        fn next_usize(&mut self, max: usize) -> usize {
+            (self.next_u64() as usize) % max
+        }
+    }
+
     #[test]
     fn cycle_scoring_matches_hand_graph() {
         let tails = vec![0, 1, 0];
@@ -146,5 +164,44 @@ mod tests {
             incidence[head] += sign;
         }
         assert!(incidence.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn random_cycles_form_circulations() {
+        let mut rng = TestRng::new(123);
+        for _ in 0..20 {
+            let node_count = 6;
+            let mut tails = Vec::new();
+            let mut heads = Vec::new();
+            let mut gradients = Vec::new();
+            let mut lengths = Vec::new();
+            for _ in 0..12 {
+                let tail = rng.next_usize(node_count);
+                let mut head = rng.next_usize(node_count);
+                if head == tail {
+                    head = (head + 1) % node_count;
+                }
+                tails.push(tail as u32);
+                heads.push(head as u32);
+                gradients.push((rng.next_u64() % 11) as f64 - 5.0);
+                lengths.push((rng.next_u64() % 5) as f64 + 1.0);
+            }
+            let mut oracle = MinRatioOracle::new(rng.next_u64(), 1);
+            let Some(best) = oracle
+                .best_cycle(0, node_count, &tails, &heads, &gradients, &lengths)
+                .unwrap()
+            else {
+                continue;
+            };
+            let mut incidence = vec![0_i32; node_count];
+            for (edge_id, dir) in best.cycle_edges {
+                let tail = tails[edge_id] as usize;
+                let head = heads[edge_id] as usize;
+                let sign = dir as i32;
+                incidence[tail] -= sign;
+                incidence[head] += sign;
+            }
+            assert!(incidence.iter().all(|&v| v == 0));
+        }
     }
 }
