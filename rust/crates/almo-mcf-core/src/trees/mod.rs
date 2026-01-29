@@ -115,9 +115,7 @@ impl LowStretchTree {
             max_pow += 1;
         }
         let mut up = vec![vec![0; node_count]; max_pow];
-        for node in 0..node_count {
-            up[0][node] = parent[node];
-        }
+        up[0][..node_count].copy_from_slice(&parent[..node_count]);
         for k in 1..max_pow {
             for node in 0..node_count {
                 let mid = up[k - 1][node];
