@@ -1,13 +1,20 @@
+pub mod graph;
+pub mod ipm;
+pub mod min_ratio;
 pub mod numerics;
+pub mod rounding;
+pub mod spanner;
+pub mod trees;
 
 #[derive(Debug, Clone)]
 pub struct McfProblem {
-    pub tail: Vec<u32>,
-    pub head: Vec<u32>,
+    pub tails: Vec<u32>,
+    pub heads: Vec<u32>,
     pub lower: Vec<i64>,
     pub upper: Vec<i64>,
     pub cost: Vec<i64>,
-    pub demand: Vec<i64>,
+    pub demands: Vec<i64>,
+    pub edge_count: usize,
     pub node_count: usize,
 }
 
@@ -54,15 +61,15 @@ pub enum McfError {
 
 impl McfProblem {
     pub fn new(
-        tail: Vec<u32>,
-        head: Vec<u32>,
+        tails: Vec<u32>,
+        heads: Vec<u32>,
         lower: Vec<i64>,
         upper: Vec<i64>,
         cost: Vec<i64>,
-        demand: Vec<i64>,
+        demands: Vec<i64>,
     ) -> Result<Self, McfError> {
-        let edge_count = tail.len();
-        if head.len() != edge_count
+        let edge_count = tails.len();
+        if heads.len() != edge_count
             || lower.len() != edge_count
             || upper.len() != edge_count
             || cost.len() != edge_count
@@ -71,15 +78,15 @@ impl McfProblem {
                 "edge arrays must have identical length".to_string(),
             ));
         }
-        let node_count = demand.len();
-        for (&t, &h) in tail.iter().zip(head.iter()) {
+        let node_count = demands.len();
+        for (&t, &h) in tails.iter().zip(heads.iter()) {
             if t as usize >= node_count || h as usize >= node_count {
                 return Err(McfError::InvalidInput(
                     "edge endpoint outside node range".to_string(),
                 ));
             }
         }
-        let demand_sum: i64 = demand.iter().sum();
+        let demand_sum: i64 = demands.iter().sum();
         if demand_sum != 0 {
             return Err(McfError::InvalidInput(
                 "demands must sum to zero".to_string(),
@@ -93,18 +100,30 @@ impl McfProblem {
             }
         }
         Ok(Self {
-            tail,
-            head,
+            tails,
+            heads,
             lower,
             upper,
             cost,
-            demand,
+            demands,
+            edge_count,
             node_count,
         })
     }
 
     pub fn edge_count(&self) -> usize {
-        self.tail.len()
+        self.edge_count
+    }
+
+    pub fn node_ids(&self) -> graph::IdMapping {
+        graph::IdMapping::from_range(self.node_count as u32)
+    }
+
+    pub fn edge_endpoints(&self, edge_id: usize) -> Option<(u32, u32)> {
+        if edge_id >= self.edge_count {
+            return None;
+        }
+        Some((self.tails[edge_id], self.heads[edge_id]))
     }
 }
 
@@ -236,7 +255,7 @@ pub fn min_cost_flow_exact(
     let n = problem.node_count;
     let m = problem.edge_count();
 
-    let mut demand = problem.demand.clone();
+    let mut demand = problem.demands.clone();
     let mut residual_upper = vec![0_i64; m];
     for (i, residual) in residual_upper.iter_mut().enumerate() {
         let lo = problem.lower[i];
@@ -247,8 +266,8 @@ pub fn min_cost_flow_exact(
             ));
         }
         *residual = up - lo;
-        let tail = problem.tail[i] as usize;
-        let head = problem.head[i] as usize;
+        let tail = problem.tails[i] as usize;
+        let head = problem.heads[i] as usize;
         demand[tail] = demand[tail].saturating_add(lo);
         demand[head] = demand[head].saturating_sub(lo);
     }
@@ -265,8 +284,8 @@ pub fn min_cost_flow_exact(
                 "negative residual capacity".to_string(),
             ));
         }
-        let tail = problem.tail[i] as usize;
-        let head = problem.head[i] as usize;
+        let tail = problem.tails[i] as usize;
+        let head = problem.heads[i] as usize;
         let (idx, _rev) = mcf.add_edge(tail, head, cap, problem.cost[i]);
         edge_refs.push((tail, idx, cap));
     }
