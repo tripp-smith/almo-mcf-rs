@@ -23,7 +23,7 @@ fn build_problem(node_count: usize, edge_count: usize) -> McfProblem {
     let mut rng = BenchRng::new(42);
     let mut tails = Vec::with_capacity(edge_count);
     let mut heads = Vec::with_capacity(edge_count);
-    let mut lower = vec![0_i64; edge_count];
+    let lower = vec![0_i64; edge_count];
     let mut upper = Vec::with_capacity(edge_count);
     let mut cost = Vec::with_capacity(edge_count);
 
