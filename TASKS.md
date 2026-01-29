@@ -9,8 +9,8 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 12. [x] Verify the tree covers all nodes, path length queries are O(log n), and it is deterministic under seed.
 13. [x] Implement fundamental cycle extraction as edge plus tree path and compute numerator g^T p(cycle) and denominator ||L p(cycle)||_1.
 14. [x] Add unit tests for correct numerator and denominator on hand graphs and ensure it always returns a circulation Δ on random instances.
-15. Implement the periodic rebuild oracle interface, rebuild schedule every R iterations, and stability triggers.
-16. Test that the oracle returns Δ with negative ratio when one exists and passes correctness tests for IPM steps.
+15. [x] Implement the periodic rebuild oracle interface, rebuild schedule every R iterations, and stability triggers.
+16. [x] Test that the oracle returns Δ with negative ratio when one exists and passes correctness tests for IPM steps.
 17. Implement the IPM iteration loop to compute Φ, g, ℓ, call the oracle, scale Δ, perform line search, and update flow.
 18. Ensure Φ decreases monotonically on accepted steps and flow remains strictly interior.
 19. Test that simple networks converge.
