@@ -249,4 +249,19 @@ mod tests {
         let lca = tree.lca(2, 4).unwrap();
         assert!(lca < 5);
     }
+
+    #[test]
+    fn path_length_matches_path_edges() {
+        let tails = vec![0, 1, 1, 3, 2];
+        let heads = vec![1, 2, 3, 4, 4];
+        let lengths = vec![1.0, 2.0, 1.5, 1.0, 3.0];
+        let tree = LowStretchTree::build(5, &tails, &heads, &lengths, 9).unwrap();
+        let path_edges = tree.path_edges(2, 4, &tails, &heads).unwrap();
+        let mut length_sum = 0.0;
+        for (edge_id, _) in path_edges {
+            length_sum += lengths[edge_id];
+        }
+        let dist = tree.path_length(2, 4).unwrap();
+        assert!((dist - length_sum).abs() < 1e-9);
+    }
 }
