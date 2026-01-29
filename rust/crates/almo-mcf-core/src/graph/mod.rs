@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use crate::McfError;
 
+pub(crate) mod min_cost_flow;
+
 #[derive(Debug, Clone)]
 pub struct IdMapping {
     internal_to_external: Vec<u32>,

@@ -2,7 +2,7 @@
 
 This list captures the remaining engineering tasks (8–48) in a concise, issue-ready checklist.
 
-8. Implement lower-bound normalization and super-source feasibility flow for the strict feasibility initializer.
+8. [x] Implement lower-bound normalization and super-source feasibility flow for the strict feasibility initializer.
 9. Add auxiliary circulation solver for feasibility and ε-margin push-inside repair.
 10. Test the initializer on feasible random small graphs to return strictly interior flows and on infeasible instances to return Infeasible errors.
 11. Implement a randomized low-stretch spanning tree generator with seed, including parent, depth, prefix sums, and LCA via binary lifting.
