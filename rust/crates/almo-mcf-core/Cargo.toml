@@ -5,9 +5,10 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+rayon = { version = "1.10", optional = true }
 
 [features]
-parallel = []
+parallel = ["dep:rayon"]
 simd = []
 
 [dev-dependencies]
