@@ -374,29 +374,15 @@ mod tests {
 
     #[test]
     fn rejects_unbalanced_demands() {
-        let err = McfProblem::new(
-            vec![0],
-            vec![1],
-            vec![0],
-            vec![3],
-            vec![1],
-            vec![1, 0],
-        )
-        .unwrap_err();
+        let err =
+            McfProblem::new(vec![0], vec![1], vec![0], vec![3], vec![1], vec![1, 0]).unwrap_err();
         assert!(matches!(err, McfError::InvalidInput(_)));
     }
 
     #[test]
     fn rejects_invalid_bounds() {
-        let err = McfProblem::new(
-            vec![0],
-            vec![1],
-            vec![5],
-            vec![2],
-            vec![1],
-            vec![-1, 1],
-        )
-        .unwrap_err();
+        let err =
+            McfProblem::new(vec![0], vec![1], vec![5], vec![2], vec![1], vec![-1, 1]).unwrap_err();
         assert!(matches!(err, McfError::InvalidInput(_)));
     }
 
