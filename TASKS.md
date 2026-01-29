@@ -41,5 +41,5 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 44. [x] Populate Rust Criterion benchmarks with metrics for iterations and time.
 45. [x] Add Python pytest-benchmark and ensure no regressions.
 46. [x] Verify pip install almo-mcf works.
-47. Add optional docs/ folder with math notes explaining potential function, cycle oracle mapping to Δ, and termination with rounding.
-48. Validate the complete implementation by ensuring all correctness tests up to n≤30 match NetworkX exactly, outputs are integral and feasible, IPM converges without numerical failures, wheels build and install cleanly on multiple platforms, pip install almo-mcf plus NetworkX adapter works end-to-end, performance is competitive on medium graphs, and full dynamic oracle passes parity tests with fallback on small graphs.
+47. [x] Add optional docs/ folder with math notes explaining potential function, cycle oracle mapping to Δ, and termination with rounding.
+48. [x] Validate the complete implementation by ensuring all correctness tests up to n≤30 match NetworkX exactly, outputs are integral and feasible, IPM converges without numerical failures, wheels build and install cleanly on multiple platforms, pip install almo-mcf plus NetworkX adapter works end-to-end, performance is competitive on medium graphs, and full dynamic oracle passes parity tests with fallback on small graphs.
