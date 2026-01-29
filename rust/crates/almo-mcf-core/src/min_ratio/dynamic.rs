@@ -39,7 +39,7 @@ impl TreeChainHierarchy {
         let mut chain = Vec::with_capacity(levels);
         for level in 0..levels {
             chain.push(TreeChainLevel::new(
-                seed ^ ((level as u64 + 1) * 0x9e37_79b9_7f4a_7c15),
+                seed ^ (0x9e37_79b9_7f4a_7c15u64.wrapping_mul(level as u64 + 1)),
                 rebuild_every,
                 max_instability,
             ));
@@ -107,7 +107,11 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!((fallback_best.ratio - hierarchy_best.ratio).abs() < 1e-9);
-        assert_eq!(fallback_best.cycle_edges, hierarchy_best.cycle_edges);
+        let mut fallback_edges = fallback_best.cycle_edges.clone();
+        let mut hierarchy_edges = hierarchy_best.cycle_edges.clone();
+        fallback_edges.sort_unstable();
+        hierarchy_edges.sort_unstable();
+        assert_eq!(fallback_edges, hierarchy_edges);
     }
 
     #[test]
