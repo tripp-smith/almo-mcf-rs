@@ -15,11 +15,11 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 18. [x] Ensure Φ decreases monotonically on accepted steps and flow remains strictly interior.
 19. [x] Test that simple networks converge.
 20. [x] Add termination criteria based on threshold, iteration cap, and timeout support, reporting the reason for stopping.
-21. Build the residual min-cost circulation instance from fractional decomposition and residual graph.
-22. Verify the residual instance has polynomial bounds and is feasible if input is near-optimal.
-23. Implement the cycle canceler for integral correction and final flow integrality enforcement.
-24. Ensure output flow is integral, feasible, and has the same optimal cost.
-25. Verify it can be called from Python, returns flow vector, and is thread-safe.
+21. [x] Build the residual min-cost circulation instance from fractional decomposition and residual graph.
+22. [x] Verify the residual instance has polynomial bounds and is feasible if input is near-optimal.
+23. [x] Implement the cycle canceler for integral correction and final flow integrality enforcement.
+24. [x] Ensure output flow is integral, feasible, and has the same optimal cost.
+25. [x] Verify it can be called from Python, returns flow vector, and is thread-safe.
 26. Implement the NetworkX adapter to match the API, including min_cost_flow(G) and min_cost_flow_cost(G, flow).
 27. Add graph conversion from nx.DiGraph to Rust format, rejection of MultiDiGraph, and enforcement of finite capacities.
 28. Support demand, capacity, lower_capacity, and weight attributes.
