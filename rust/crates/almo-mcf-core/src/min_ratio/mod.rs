@@ -1,4 +1,5 @@
 use crate::trees::{LowStretchTree, TreeError};
+pub mod dynamic;
 
 #[derive(Debug, Clone)]
 pub struct CycleCandidate {
