@@ -246,6 +246,48 @@ mod tests {
     }
 
     #[test]
+    fn handles_parallel_edges_with_costs() {
+        let solution = solve(
+            vec![0, 0],
+            vec![1, 1],
+            vec![0, 0],
+            vec![1, 4],
+            vec![1, 3],
+            vec![-3, 3],
+        );
+        assert_eq!(solution.flow, vec![1, 2]);
+        assert_eq!(solution.cost, 7);
+    }
+
+    #[test]
+    fn supports_negative_costs() {
+        let solution = solve(
+            vec![0, 1],
+            vec![1, 2],
+            vec![0, 0],
+            vec![3, 3],
+            vec![-2, 1],
+            vec![-2, 0, 2],
+        );
+        assert_eq!(solution.flow, vec![2, 2]);
+        assert_eq!(solution.cost, -2);
+    }
+
+    #[test]
+    fn honors_lower_bound_circulation() {
+        let solution = solve(
+            vec![0, 1, 2],
+            vec![1, 2, 0],
+            vec![1, 1, 1],
+            vec![3, 3, 3],
+            vec![1, 1, 1],
+            vec![0, 0, 0],
+        );
+        assert_eq!(solution.flow, vec![1, 1, 1]);
+        assert_eq!(solution.cost, 3);
+    }
+
+    #[test]
     fn detects_infeasible() {
         let problem =
             McfProblem::new(vec![0], vec![1], vec![0], vec![1], vec![1], vec![-2, 2]).unwrap();
