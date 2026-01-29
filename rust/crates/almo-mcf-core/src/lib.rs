@@ -371,4 +371,35 @@ mod tests {
         let err = min_cost_flow_exact(&problem, &McfOptions::default()).unwrap_err();
         assert!(matches!(err, McfError::Infeasible));
     }
+
+    #[test]
+    fn rejects_unbalanced_demands() {
+        let err =
+            McfProblem::new(vec![0], vec![1], vec![0], vec![3], vec![1], vec![1, 0]).unwrap_err();
+        assert!(matches!(err, McfError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn rejects_invalid_bounds() {
+        let err =
+            McfProblem::new(vec![0], vec![1], vec![5], vec![2], vec![1], vec![-1, 1]).unwrap_err();
+        assert!(matches!(err, McfError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn exposes_edge_metadata_helpers() {
+        let problem = McfProblem::new(
+            vec![0, 1],
+            vec![1, 2],
+            vec![0, 0],
+            vec![3, 4],
+            vec![1, 2],
+            vec![-1, 0, 1],
+        )
+        .unwrap();
+
+        assert_eq!(problem.edge_count(), 2);
+        assert_eq!(problem.edge_endpoints(1), Some((1, 2)));
+        assert_eq!(problem.edge_endpoints(2), None);
+    }
 }
