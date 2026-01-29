@@ -383,4 +383,52 @@ mod tests {
             .unwrap();
         assert_eq!(oracle.last_rebuild, 1);
     }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_best_cycle_matches_serial_scoring() {
+        let mut rng = TestRng::new(17);
+        let node_count = 12;
+        let edge_count = 40;
+        let mut tails = Vec::with_capacity(edge_count);
+        let mut heads = Vec::with_capacity(edge_count);
+        let mut gradients = Vec::with_capacity(edge_count);
+        let mut lengths = Vec::with_capacity(edge_count);
+        for _ in 0..edge_count {
+            let tail = rng.next_usize(node_count) as u32;
+            let mut head = rng.next_usize(node_count) as u32;
+            if head == tail {
+                head = (head + 1) % node_count as u32;
+            }
+            tails.push(tail);
+            heads.push(head);
+            gradients.push((rng.next_u64() % 13) as f64 - 6.0);
+            lengths.push((rng.next_u64() % 9) as f64 + 1.0);
+        }
+
+        let mut oracle = MinRatioOracle::new(9, 1);
+        let best_parallel = oracle
+            .best_cycle(0, node_count, &tails, &heads, &gradients, &lengths)
+            .unwrap()
+            .unwrap();
+
+        let tree = oracle.tree.as_ref().expect("tree should be built");
+        let mut best_serial: Option<CycleCandidate> = None;
+        for edge_id in 0..edge_count {
+            let Some(candidate) =
+                score_edge_cycle(tree, edge_id, &tails, &heads, &gradients, &lengths)
+            else {
+                continue;
+            };
+            best_serial = Some(match best_serial {
+                Some(current) => select_better_candidate(current, candidate),
+                None => candidate,
+            });
+        }
+        let best_serial = best_serial.expect("should find a candidate");
+        assert_eq!(
+            cycle_candidate_key(&best_parallel),
+            cycle_candidate_key(&best_serial)
+        );
+    }
 }

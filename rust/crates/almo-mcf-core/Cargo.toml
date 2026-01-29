@@ -12,3 +12,8 @@ parallel = ["dep:rayon"]
 simd = []
 
 [dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "bench_ipm"
+harness = false
