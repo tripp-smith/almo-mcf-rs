@@ -35,9 +35,9 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 38. Verify no correctness regressions and measurable speedup.
 39. [x] Implement golden correctness tests with hand-constructed instances for single paths, parallel edges, negative costs, and lower bounds.
 40. [x] Verify exact cost match, feasibility, and integrality.
-41. Add property-based randomized tests for small graphs versus NetworkX, ensuring no mismatches for n≤30 and no crashes.
-42. Store failing seeds as deterministic regression tests and ensure CI stability.
-43. Implement numerical stability tests for near-bound flows, confirming no NaN/Inf and strict interior preserved.
+41. [x] Add property-based randomized tests for small graphs versus NetworkX, ensuring no mismatches for n≤30 and no crashes.
+42. [x] Store failing seeds as deterministic regression tests and ensure CI stability.
+43. [x] Implement numerical stability tests for near-bound flows, confirming no NaN/Inf and strict interior preserved.
 44. Populate Rust Criterion benchmarks with metrics for iterations and time.
 45. Add Python pytest-benchmark and ensure no regressions.
 46. Verify pip install almo-mcf works.
