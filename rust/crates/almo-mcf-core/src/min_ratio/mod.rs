@@ -137,7 +137,7 @@ mod tests {
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap()
             .unwrap();
-        let mut incidence = vec![0_i32; 3];
+        let mut incidence = [0_i32; 3];
         for (edge_id, dir) in best.cycle_edges {
             let tail = tails[edge_id] as usize;
             let head = heads[edge_id] as usize;
