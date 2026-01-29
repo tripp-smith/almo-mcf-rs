@@ -3,8 +3,8 @@
 This list captures the remaining engineering tasks (8–48) in a concise, issue-ready checklist.
 
 8. [x] Implement lower-bound normalization and super-source feasibility flow for the strict feasibility initializer.
-9. Add auxiliary circulation solver for feasibility and ε-margin push-inside repair.
-10. Test the initializer on feasible random small graphs to return strictly interior flows and on infeasible instances to return Infeasible errors.
+9. [x] Add auxiliary circulation solver for feasibility and ε-margin push-inside repair.
+10. [x] Test the initializer on feasible random small graphs to return strictly interior flows and on infeasible instances to return Infeasible errors.
 11. Implement a randomized low-stretch spanning tree generator with seed, including parent, depth, prefix sums, and LCA via binary lifting.
 12. Verify the tree covers all nodes, path length queries are O(log n), and it is deterministic under seed.
 13. Implement fundamental cycle extraction as edge plus tree path and compute numerator g^T p(cycle) and denominator ||L p(cycle)||_1.
