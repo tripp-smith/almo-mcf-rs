@@ -1,4 +1,5 @@
 use crate::graph::min_cost_flow::MinCostFlow;
+use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::MinRatioOracle;
 use crate::numerics::barrier::{barrier_gradient, barrier_lengths};
 use crate::{McfError, McfOptions, McfProblem, Strategy};
@@ -59,12 +60,16 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
     let min_delta = 1e-9;
     let alpha = 0.01;
 
-    let mut oracle = match opts.strategy {
+    let mut fallback_oracle = None;
+    let mut dynamic_oracle = None;
+    match opts.strategy {
         Strategy::PeriodicRebuild { rebuild_every } => {
-            MinRatioOracle::new(opts.seed, rebuild_every)
+            fallback_oracle = Some(MinRatioOracle::new(opts.seed, rebuild_every));
         }
-        Strategy::FullDynamic => MinRatioOracle::new(opts.seed, 1),
-    };
+        Strategy::FullDynamic => {
+            dynamic_oracle = Some(FullDynamicOracle::new(opts.seed, 3, 1, 10, 0.1));
+        }
+    }
 
     let start = Instant::now();
     let mut stats = IpmStats {
@@ -96,17 +101,32 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             + lengths.iter().sum::<f64>();
         stats.potentials.push(potential);
 
-        let Some(best) = oracle
-            .best_cycle(
-                iter,
-                problem.node_count,
-                &problem.tails,
-                &problem.heads,
-                &gradient,
-                &lengths,
-            )
-            .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
-        else {
+        let best = if let Some(oracle) = fallback_oracle.as_mut() {
+            oracle
+                .best_cycle(
+                    iter,
+                    problem.node_count,
+                    &problem.tails,
+                    &problem.heads,
+                    &gradient,
+                    &lengths,
+                )
+                .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
+        } else if let Some(oracle) = dynamic_oracle.as_mut() {
+            oracle
+                .best_cycle(
+                    iter,
+                    problem.node_count,
+                    &problem.tails,
+                    &problem.heads,
+                    &gradient,
+                    &lengths,
+                )
+                .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
+        } else {
+            None
+        };
+        let Some(best) = best else {
             termination = IpmTermination::NoImprovingCycle;
             stats.iterations = iter;
             break;
