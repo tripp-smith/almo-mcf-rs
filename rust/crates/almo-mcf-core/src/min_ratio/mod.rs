@@ -54,10 +54,7 @@ impl MinRatioOracle {
         gradients: &[f64],
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
-        if self.tree.is_none()
-            || iter == 0
-            || (iter - self.last_rebuild) >= self.rebuild_every
-        {
+        if self.tree.is_none() || iter == 0 || (iter - self.last_rebuild) >= self.rebuild_every {
             self.rebuild_tree(iter, node_count, tails, heads, lengths)?;
         }
         let tree = self.tree.as_ref().expect("tree should exist after rebuild");
@@ -94,11 +91,7 @@ impl MinRatioOracle {
                 denominator,
                 cycle_edges,
             };
-            if best
-                .as_ref()
-                .map(|best| ratio < best.ratio)
-                .unwrap_or(true)
-            {
+            if best.as_ref().map(|best| ratio < best.ratio).unwrap_or(true) {
                 best = Some(candidate);
             }
         }

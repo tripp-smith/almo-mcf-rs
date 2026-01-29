@@ -22,7 +22,11 @@ struct XorShift64 {
 
 impl XorShift64 {
     fn new(seed: u64) -> Self {
-        let seed = if seed == 0 { 0x9e37_79b9_7f4a_7c15 } else { seed };
+        let seed = if seed == 0 {
+            0x9e37_79b9_7f4a_7c15
+        } else {
+            seed
+        };
         Self { state: seed }
     }
 
