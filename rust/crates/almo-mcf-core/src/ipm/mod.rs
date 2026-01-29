@@ -127,15 +127,8 @@ mod tests {
 
     #[test]
     fn initializer_rejects_infeasible_instance() {
-        let problem = McfProblem::new(
-            vec![0],
-            vec![1],
-            vec![0],
-            vec![1],
-            vec![1],
-            vec![-2, 2],
-        )
-        .unwrap();
+        let problem =
+            McfProblem::new(vec![0], vec![1], vec![0], vec![1], vec![1], vec![-2, 2]).unwrap();
         let err = initialize_feasible_flow(&problem).unwrap_err();
         assert!(matches!(err, McfError::Infeasible));
     }
