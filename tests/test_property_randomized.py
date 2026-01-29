@@ -7,9 +7,10 @@ from almo_mcf import min_cost_flow, min_cost_flow_cost
 from .regression_seeds import SEEDS as REGRESSION_SEEDS
 
 
-def _build_random_graph(seed: int) -> nx.DiGraph:
+def _build_random_graph(seed: int, node_count: int | None = None) -> nx.DiGraph:
     rng = random.Random(seed)
-    node_count = rng.randint(5, 9)
+    if node_count is None:
+        node_count = rng.randint(5, 30)
     graph = nx.DiGraph()
     graph.add_nodes_from(range(node_count))
 
@@ -57,9 +58,14 @@ def _assert_flow_feasible(graph: nx.DiGraph, flow) -> None:
 
 
 def test_random_graphs_match_networkx():
-    seeds = list(range(3))
-    for seed in seeds:
-        graph = _build_random_graph(seed)
+    cases = [
+        (0, 5),
+        (1, 10),
+        (2, 20),
+        (3, 30),
+    ]
+    for seed, node_count in cases:
+        graph = _build_random_graph(seed, node_count=node_count)
         nx_flow = nx.min_cost_flow(graph)
         flow = min_cost_flow(graph)
         _assert_flow_feasible(graph, flow)
