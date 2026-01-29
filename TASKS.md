@@ -29,7 +29,7 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 32. [x] Add tests for embedding correctness and validity of all paths in H.
 33. [x] Implement the full dynamic oracle using hierarchy and spanner to return Δ, with update hooks and approx ratio logic.
 34. [x] Verify it returns valid Δ, is stable across IPM iterations, and matches fallback on small tests.
-35. Parallelize oracle scoring using Rayon map-reduce for cycle scoring, gradient computation, and path queries.
+35. [x] Parallelize oracle scoring using Rayon map-reduce for cycle scoring, gradient computation, and path queries.
 36. Ensure same results as serial and achieve speedup greater than 1.5x on m greater than 50k.
 37. Add SIMD using std::simd for barrier preprocess loops and cost accumulation.
 38. Verify no correctness regressions and measurable speedup.

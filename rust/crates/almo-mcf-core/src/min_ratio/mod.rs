@@ -1,4 +1,6 @@
 use crate::trees::{LowStretchTree, TreeError};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 pub mod dynamic;
 
 #[derive(Debug, Clone)]
@@ -113,47 +115,112 @@ impl MinRatioOracle {
             self.rebuild_tree(iter, node_count, tails, heads, lengths)?;
         }
         let tree = self.tree.as_ref().expect("tree should exist after rebuild");
-
-        let mut best: Option<CycleCandidate> = None;
-        for edge_id in 0..tails.len() {
-            if tree.tree_edges[edge_id] {
-                continue;
-            }
-            let tail = tails[edge_id] as usize;
-            let head = heads[edge_id] as usize;
-            let Some(path_edges) = tree.path_edges(head, tail, tails, heads) else {
-                continue;
-            };
-            let mut numerator = gradients[edge_id];
-            let mut denominator = lengths[edge_id].abs();
-            let mut cycle_edges = Vec::with_capacity(path_edges.len() + 1);
-            cycle_edges.push((edge_id, 1));
-
-            for (path_edge, dir) in path_edges {
-                let grad = gradients[path_edge];
-                numerator += (dir as f64) * grad;
-                denominator += lengths[path_edge].abs();
-                cycle_edges.push((path_edge, dir));
-            }
-
-            if denominator <= 0.0 {
-                continue;
-            }
-            let ratio = numerator / denominator;
-            let candidate = CycleCandidate {
-                ratio,
-                numerator,
-                denominator,
-                cycle_edges,
-            };
-            if best.as_ref().map(|best| ratio < best.ratio).unwrap_or(true) {
-                best = Some(candidate);
-            }
-        }
+        let best = best_cycle_over_edges(tree, tails, heads, gradients, lengths);
 
         self.update_stability(best.as_ref());
         Ok(best)
     }
+}
+
+fn cycle_candidate_key(candidate: &CycleCandidate) -> (f64, usize) {
+    let lead_edge = candidate
+        .cycle_edges
+        .first()
+        .map(|(edge_id, _)| *edge_id)
+        .unwrap_or(usize::MAX);
+    (candidate.ratio, lead_edge)
+}
+
+fn select_better_candidate(left: CycleCandidate, right: CycleCandidate) -> CycleCandidate {
+    const EPS: f64 = 1e-12;
+    let left_key = cycle_candidate_key(&left);
+    let right_key = cycle_candidate_key(&right);
+    if left_key.0 + EPS < right_key.0 {
+        left
+    } else if (left_key.0 - right_key.0).abs() <= EPS {
+        if left_key.1 <= right_key.1 {
+            left
+        } else {
+            right
+        }
+    } else {
+        right
+    }
+}
+
+fn score_edge_cycle(
+    tree: &LowStretchTree,
+    edge_id: usize,
+    tails: &[u32],
+    heads: &[u32],
+    gradients: &[f64],
+    lengths: &[f64],
+) -> Option<CycleCandidate> {
+    if tree.tree_edges[edge_id] {
+        return None;
+    }
+    let tail = tails[edge_id] as usize;
+    let head = heads[edge_id] as usize;
+    let path_edges = tree.path_edges(head, tail, tails, heads)?;
+
+    let mut numerator = gradients[edge_id];
+    let mut denominator = lengths[edge_id].abs();
+    let mut cycle_edges = Vec::with_capacity(path_edges.len() + 1);
+    cycle_edges.push((edge_id, 1));
+
+    for (path_edge, dir) in path_edges {
+        let grad = gradients[path_edge];
+        numerator += (dir as f64) * grad;
+        denominator += lengths[path_edge].abs();
+        cycle_edges.push((path_edge, dir));
+    }
+
+    if denominator <= 0.0 {
+        return None;
+    }
+    let ratio = numerator / denominator;
+    Some(CycleCandidate {
+        ratio,
+        numerator,
+        denominator,
+        cycle_edges,
+    })
+}
+
+#[cfg(feature = "parallel")]
+fn best_cycle_over_edges(
+    tree: &LowStretchTree,
+    tails: &[u32],
+    heads: &[u32],
+    gradients: &[f64],
+    lengths: &[f64],
+) -> Option<CycleCandidate> {
+    (0..tails.len())
+        .into_par_iter()
+        .filter_map(|edge_id| score_edge_cycle(tree, edge_id, tails, heads, gradients, lengths))
+        .reduce_with(select_better_candidate)
+}
+
+#[cfg(not(feature = "parallel"))]
+fn best_cycle_over_edges(
+    tree: &LowStretchTree,
+    tails: &[u32],
+    heads: &[u32],
+    gradients: &[f64],
+    lengths: &[f64],
+) -> Option<CycleCandidate> {
+    let mut best: Option<CycleCandidate> = None;
+    for edge_id in 0..tails.len() {
+        let Some(candidate) = score_edge_cycle(tree, edge_id, tails, heads, gradients, lengths)
+        else {
+            continue;
+        };
+        best = Some(match best {
+            Some(current) => select_better_candidate(current, candidate),
+            None => candidate,
+        });
+    }
+    best
 }
 
 #[cfg(test)]
@@ -220,6 +287,27 @@ mod tests {
             incidence[head] += sign;
         }
         assert!(incidence.iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn deterministic_candidate_tie_breaker() {
+        let left = CycleCandidate {
+            ratio: -1.0,
+            numerator: -2.0,
+            denominator: 2.0,
+            cycle_edges: vec![(3, 1)],
+        };
+        let right = CycleCandidate {
+            ratio: -1.0,
+            numerator: -4.0,
+            denominator: 4.0,
+            cycle_edges: vec![(7, 1)],
+        };
+        let chosen = select_better_candidate(left.clone(), right.clone());
+        assert_eq!(chosen.cycle_edges[0].0, 3);
+
+        let chosen = select_better_candidate(right, left);
+        assert_eq!(chosen.cycle_edges[0].0, 3);
     }
 
     #[test]
