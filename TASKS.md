@@ -23,10 +23,10 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 26. [x] Implement the NetworkX adapter to match the API, including min_cost_flow(G) and min_cost_flow_cost(G, flow).
 27. [x] Add graph conversion from nx.DiGraph to Rust format, rejection of MultiDiGraph, and enforcement of finite capacities.
 28. [x] Support demand, capacity, lower_capacity, and weight attributes.
-29. Implement multilevel tree structure with level abstraction, rebuild logic, and instability budgets.
-30. Ensure it produces cycles equivalent to the fallback oracle and is deterministic under seed.
-31. Maintain the subgraph H with embeddings, supporting insert/delete edges, vertex splits, and path extraction.
-32. Add tests for embedding correctness and validity of all paths in H.
+29. [x] Implement multilevel tree structure with level abstraction, rebuild logic, and instability budgets.
+30. [x] Ensure it produces cycles equivalent to the fallback oracle and is deterministic under seed.
+31. [x] Maintain the subgraph H with embeddings, supporting insert/delete edges, vertex splits, and path extraction.
+32. [x] Add tests for embedding correctness and validity of all paths in H.
 33. Implement the full dynamic oracle using hierarchy and spanner to return Δ, with update hooks and approx ratio logic.
 34. Verify it returns valid Δ, is stable across IPM iterations, and matches fallback on small tests.
 35. Parallelize oracle scoring using Rayon map-reduce for cycle scoring, gradient computation, and path queries.
