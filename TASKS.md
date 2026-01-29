@@ -20,9 +20,9 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 23. [x] Implement the cycle canceler for integral correction and final flow integrality enforcement.
 24. [x] Ensure output flow is integral, feasible, and has the same optimal cost.
 25. [x] Verify it can be called from Python, returns flow vector, and is thread-safe.
-26. Implement the NetworkX adapter to match the API, including min_cost_flow(G) and min_cost_flow_cost(G, flow).
-27. Add graph conversion from nx.DiGraph to Rust format, rejection of MultiDiGraph, and enforcement of finite capacities.
-28. Support demand, capacity, lower_capacity, and weight attributes.
+26. [x] Implement the NetworkX adapter to match the API, including min_cost_flow(G) and min_cost_flow_cost(G, flow).
+27. [x] Add graph conversion from nx.DiGraph to Rust format, rejection of MultiDiGraph, and enforcement of finite capacities.
+28. [x] Support demand, capacity, lower_capacity, and weight attributes.
 29. Implement multilevel tree structure with level abstraction, rebuild logic, and instability budgets.
 30. Ensure it produces cycles equivalent to the fallback oracle and is deterministic under seed.
 31. Maintain the subgraph H with embeddings, supporting insert/delete edges, vertex splits, and path extraction.

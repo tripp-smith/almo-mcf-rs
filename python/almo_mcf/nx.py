@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
+import math
+
 import numpy as np
 
 
@@ -23,6 +25,8 @@ def _load_core():
 
 
 def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]:
+    if not G.is_directed():
+        raise ValueError("Only directed graphs are supported.")
     if G.is_multigraph():
         raise ValueError("MultiDiGraph is not supported yet.")
     nodes = list(G.nodes())
@@ -30,7 +34,10 @@ def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]
     n = len(nodes)
     demand = [0] * n
     for node, idx in index.items():
-        demand[idx] = int(G.nodes[node].get("demand", 0))
+        node_demand = G.nodes[node].get("demand", 0)
+        if not isinstance(node_demand, (int, float)) or not math.isfinite(node_demand):
+            raise ValueError("Node demand must be a finite number.")
+        demand[idx] = int(node_demand)
     tails = []
     heads = []
     lower = []
@@ -40,11 +47,19 @@ def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]
     for u, v, data in edges:
         tails.append(index[u])
         heads.append(index[v])
-        lower.append(int(data.get("lower_capacity", 0)))
+        lower_capacity = data.get("lower_capacity", 0)
+        if not isinstance(lower_capacity, (int, float)) or not math.isfinite(lower_capacity):
+            raise ValueError("lower_capacity must be a finite number.")
+        lower.append(int(lower_capacity))
         if "capacity" not in data:
             raise ValueError("Each edge must specify a finite capacity.")
-        upper.append(int(data["capacity"]))
+        capacity = data["capacity"]
+        if not isinstance(capacity, (int, float)) or not math.isfinite(capacity):
+            raise ValueError("Each edge must specify a finite capacity.")
+        upper.append(int(capacity))
         edge_cost = data.get("weight", data.get("cost", 0))
+        if not isinstance(edge_cost, (int, float)) or not math.isfinite(edge_cost):
+            raise ValueError("Edge cost must be a finite number.")
         cost.append(int(edge_cost))
     return tails, heads, lower, upper, cost, demand, index, edges
 
