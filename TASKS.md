@@ -11,10 +11,10 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 14. [x] Add unit tests for correct numerator and denominator on hand graphs and ensure it always returns a circulation Δ on random instances.
 15. [x] Implement the periodic rebuild oracle interface, rebuild schedule every R iterations, and stability triggers.
 16. [x] Test that the oracle returns Δ with negative ratio when one exists and passes correctness tests for IPM steps.
-17. Implement the IPM iteration loop to compute Φ, g, ℓ, call the oracle, scale Δ, perform line search, and update flow.
-18. Ensure Φ decreases monotonically on accepted steps and flow remains strictly interior.
-19. Test that simple networks converge.
-20. Add termination criteria based on threshold, iteration cap, and timeout support, reporting the reason for stopping.
+17. [x] Implement the IPM iteration loop to compute Φ, g, ℓ, call the oracle, scale Δ, perform line search, and update flow.
+18. [x] Ensure Φ decreases monotonically on accepted steps and flow remains strictly interior.
+19. [x] Test that simple networks converge.
+20. [x] Add termination criteria based on threshold, iteration cap, and timeout support, reporting the reason for stopping.
 21. Build the residual min-cost circulation instance from fractional decomposition and residual graph.
 22. Verify the residual instance has polynomial bounds and is feasible if input is near-optimal.
 23. Implement the cycle canceler for integral correction and final flow integrality enforcement.

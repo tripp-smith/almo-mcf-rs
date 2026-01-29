@@ -1,5 +1,8 @@
 use crate::graph::min_cost_flow::MinCostFlow;
-use crate::{McfError, McfProblem};
+use crate::min_ratio::MinRatioOracle;
+use crate::numerics::barrier::{barrier_gradient, barrier_lengths};
+use crate::{McfError, McfOptions, McfProblem, Strategy};
+use std::time::Instant;
 
 #[derive(Debug, Default, Clone)]
 pub struct IpmState {
@@ -11,6 +14,22 @@ pub struct IpmState {
 pub struct IpmStats {
     pub iterations: usize,
     pub last_step_size: f64,
+    pub potentials: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpmTermination {
+    Converged,
+    IterationLimit,
+    TimeLimit,
+    NoImprovingCycle,
+}
+
+#[derive(Debug, Clone)]
+pub struct IpmResult {
+    pub flow: Vec<f64>,
+    pub stats: IpmStats,
+    pub termination: IpmTermination,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +48,137 @@ pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, Mc
     )?;
     let flow = push_inside_strict(problem, &base_flow)?;
     Ok(FeasibleFlow { flow })
+}
+
+pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, McfError> {
+    let feasible = initialize_feasible_flow(problem)?;
+    let mut flow = feasible.flow;
+    let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
+    let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
+    let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
+    let min_delta = 1e-9;
+    let alpha = 0.01;
+
+    let mut oracle = match opts.strategy {
+        Strategy::PeriodicRebuild { rebuild_every } => {
+            MinRatioOracle::new(opts.seed, rebuild_every)
+        }
+        Strategy::FullDynamic => MinRatioOracle::new(opts.seed, 1),
+    };
+
+    let start = Instant::now();
+    let mut stats = IpmStats {
+        iterations: 0,
+        last_step_size: 0.0,
+        potentials: Vec::new(),
+    };
+    let mut termination = IpmTermination::IterationLimit;
+
+    for iter in 0..opts.max_iters {
+        if let Some(limit) = opts.time_limit_ms {
+            if start.elapsed().as_millis() as u64 >= limit {
+                termination = IpmTermination::TimeLimit;
+                break;
+            }
+        }
+
+        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_delta);
+        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_delta)
+            .into_iter()
+            .zip(cost.iter())
+            .map(|(g, c)| g + c)
+            .collect::<Vec<f64>>();
+        let potential = cost
+            .iter()
+            .zip(flow.iter())
+            .map(|(c, f)| c * f)
+            .sum::<f64>()
+            + lengths.iter().sum::<f64>();
+        stats.potentials.push(potential);
+
+        let Some(best) = oracle
+            .best_cycle(
+                iter,
+                problem.node_count,
+                &problem.tails,
+                &problem.heads,
+                &gradient,
+                &lengths,
+            )
+            .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
+        else {
+            termination = IpmTermination::NoImprovingCycle;
+            stats.iterations = iter;
+            break;
+        };
+
+        if best.ratio >= -opts.tolerance {
+            termination = IpmTermination::Converged;
+            stats.iterations = iter;
+            break;
+        }
+
+        let mut delta = vec![0.0_f64; flow.len()];
+        for (edge_id, dir) in best.cycle_edges {
+            delta[edge_id] += dir as f64;
+        }
+
+        let mut max_step = f64::INFINITY;
+        for (idx, &d) in delta.iter().enumerate() {
+            if d > 0.0 {
+                let slack = upper[idx] - flow[idx];
+                max_step = max_step.min(slack / d);
+            } else if d < 0.0 {
+                let slack = flow[idx] - lower[idx];
+                max_step = max_step.min(slack / -d);
+            }
+        }
+
+        if !max_step.is_finite() || max_step <= 0.0 {
+            termination = IpmTermination::NoImprovingCycle;
+            stats.iterations = iter;
+            break;
+        }
+
+        let mut step = max_step * 0.99;
+        let mut accepted = false;
+        for _ in 0..20 {
+            let candidate_flow: Vec<f64> = flow
+                .iter()
+                .zip(delta.iter())
+                .map(|(f, d)| f + step * d)
+                .collect();
+            let candidate_potential = cost
+                .iter()
+                .zip(candidate_flow.iter())
+                .map(|(c, f)| c * f)
+                .sum::<f64>()
+                + barrier_lengths(&candidate_flow, &lower, &upper, alpha, min_delta)
+                    .iter()
+                    .sum::<f64>();
+            if candidate_potential < potential {
+                flow = candidate_flow;
+                stats.last_step_size = step;
+                accepted = true;
+                break;
+            }
+            step *= 0.5;
+        }
+
+        if !accepted {
+            termination = IpmTermination::NoImprovingCycle;
+            stats.iterations = iter;
+            break;
+        }
+
+        stats.iterations = iter + 1;
+    }
+
+    Ok(IpmResult {
+        flow,
+        stats,
+        termination,
+    })
 }
 
 fn solve_feasible_flow(
@@ -307,5 +457,74 @@ mod tests {
                 self.next_u32() % max
             }
         }
+    }
+
+    fn cycle_problem(cost: Vec<i64>) -> McfProblem {
+        McfProblem::new(
+            vec![0, 1, 2],
+            vec![1, 2, 0],
+            vec![0, 0, 0],
+            vec![2, 2, 2],
+            cost,
+            vec![0, 0, 0],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn ipm_decreases_potential_monotonically() {
+        let problem = cycle_problem(vec![-2, -1, -3]);
+        let opts = McfOptions {
+            tolerance: 1e-6,
+            max_iters: 4,
+            ..McfOptions::default()
+        };
+        let result = run_ipm(&problem, &opts).unwrap();
+        let potentials = result.stats.potentials;
+        assert!(potentials.len() >= 2);
+        for window in potentials.windows(2) {
+            assert!(
+                window[1] <= window[0] + 1e-9,
+                "potential increased from {} to {}",
+                window[0],
+                window[1]
+            );
+        }
+        assert!(result.stats.last_step_size > 0.0);
+    }
+
+    #[test]
+    fn ipm_stops_on_iteration_limit() {
+        let problem = cycle_problem(vec![-2, -1, -3]);
+        let opts = McfOptions {
+            tolerance: 1e-12,
+            max_iters: 1,
+            ..McfOptions::default()
+        };
+        let result = run_ipm(&problem, &opts).unwrap();
+        assert_eq!(result.termination, IpmTermination::IterationLimit);
+    }
+
+    #[test]
+    fn ipm_respects_time_limit() {
+        let problem = cycle_problem(vec![-2, -1, -3]);
+        let opts = McfOptions {
+            time_limit_ms: Some(0),
+            ..McfOptions::default()
+        };
+        let result = run_ipm(&problem, &opts).unwrap();
+        assert_eq!(result.termination, IpmTermination::TimeLimit);
+    }
+
+    #[test]
+    fn ipm_converges_on_simple_network() {
+        let problem = cycle_problem(vec![2, 1, 3]);
+        let opts = McfOptions {
+            tolerance: 1e-6,
+            max_iters: 20,
+            ..McfOptions::default()
+        };
+        let result = run_ipm(&problem, &opts).unwrap();
+        assert_eq!(result.termination, IpmTermination::Converged);
     }
 }
