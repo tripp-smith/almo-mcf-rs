@@ -30,16 +30,16 @@ This list captures the remaining engineering tasks (8–48) in a concise, issue-
 33. [x] Implement the full dynamic oracle using hierarchy and spanner to return Δ, with update hooks and approx ratio logic.
 34. [x] Verify it returns valid Δ, is stable across IPM iterations, and matches fallback on small tests.
 35. [x] Parallelize oracle scoring using Rayon map-reduce for cycle scoring, gradient computation, and path queries.
-36. Ensure same results as serial and achieve speedup greater than 1.5x on m greater than 50k.
-37. Add SIMD using std::simd for barrier preprocess loops and cost accumulation.
-38. Verify no correctness regressions and measurable speedup.
+36. [x] Ensure same results as serial and achieve speedup greater than 1.5x on m greater than 50k.
+37. [x] Add SIMD using std::simd for barrier preprocess loops and cost accumulation.
+38. [x] Verify no correctness regressions and measurable speedup.
 39. [x] Implement golden correctness tests with hand-constructed instances for single paths, parallel edges, negative costs, and lower bounds.
 40. [x] Verify exact cost match, feasibility, and integrality.
 41. [x] Add property-based randomized tests for small graphs versus NetworkX, ensuring no mismatches for n≤30 and no crashes.
 42. [x] Store failing seeds as deterministic regression tests and ensure CI stability.
 43. [x] Implement numerical stability tests for near-bound flows, confirming no NaN/Inf and strict interior preserved.
-44. Populate Rust Criterion benchmarks with metrics for iterations and time.
-45. Add Python pytest-benchmark and ensure no regressions.
-46. Verify pip install almo-mcf works.
+44. [x] Populate Rust Criterion benchmarks with metrics for iterations and time.
+45. [x] Add Python pytest-benchmark and ensure no regressions.
+46. [x] Verify pip install almo-mcf works.
 47. Add optional docs/ folder with math notes explaining potential function, cycle oracle mapping to Δ, and termination with rounding.
 48. Validate the complete implementation by ensuring all correctness tests up to n≤30 match NetworkX exactly, outputs are integral and feasible, IPM converges without numerical failures, wheels build and install cleanly on multiple platforms, pip install almo-mcf plus NetworkX adapter works end-to-end, performance is competitive on medium graphs, and full dynamic oracle passes parity tests with fallback on small graphs.

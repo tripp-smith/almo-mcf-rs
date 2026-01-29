@@ -362,4 +362,55 @@ mod tests {
             assert_close(*a, *b, 1e-12);
         }
     }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_lengths_match_serial() {
+        let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1, 3.3, 6.7, 8.8];
+        let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0, 0.5, 1.1, 2.2];
+        let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0, 9.5, 8.0, 11.0];
+        let alpha = 0.01;
+        let min_value = 1e-9;
+
+        let expected = serial_lengths(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
+
+        for (a, b) in expected.iter().zip(actual.iter()) {
+            assert_close(*a, *b, 1e-12);
+        }
+    }
+
+    #[cfg(feature = "parallel")]
+    #[test]
+    fn parallel_gradient_match_serial() {
+        let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1, 3.3, 6.7, 8.8];
+        let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0, 0.5, 1.1, 2.2];
+        let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0, 9.5, 8.0, 11.0];
+        let alpha = 0.01;
+        let min_value = 1e-9;
+
+        let expected = serial_gradient(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+
+        for (a, b) in expected.iter().zip(actual.iter()) {
+            assert_close(*a, *b, 1e-12);
+        }
+    }
+
+    #[cfg(feature = "simd")]
+    #[test]
+    fn simd_preprocess_matches_scalar() {
+        let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1, 3.3, 6.7];
+        let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0, 0.5, 1.1];
+        let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0, 9.5, 8.0];
+        let min_value = 1e-9;
+
+        let (upper_delta, lower_delta) = preprocess_deltas_simd(&flow, &lower, &upper, min_value);
+        for idx in 0..flow.len() {
+            let expected_upper = clamp_min(upper[idx] - flow[idx], min_value);
+            let expected_lower = clamp_min(flow[idx] - lower[idx], min_value);
+            assert_close(upper_delta[idx], expected_upper, 1e-12);
+            assert_close(lower_delta[idx], expected_lower, 1e-12);
+        }
+    }
 }
