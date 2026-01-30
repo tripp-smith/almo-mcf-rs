@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use crate::McfError;
 
-mod graph;
+mod core;
 pub mod matrix;
 pub(crate) mod min_cost_flow;
 pub mod residual;
 pub mod undirected;
 
-pub use graph::{Edge, EdgeId, Graph, NodeId};
+pub use core::{Edge, EdgeId, Graph, NodeId};
 
 #[derive(Debug, Clone)]
 pub struct IdMapping {

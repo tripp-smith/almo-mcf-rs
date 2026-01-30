@@ -17,6 +17,13 @@ pub struct Edge {
     pub rev: Option<EdgeId>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeSpec {
+    pub lower: f64,
+    pub upper: f64,
+    pub cost: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Graph {
     demands: Vec<f64>,
@@ -109,18 +116,14 @@ impl Graph {
         &mut self,
         tail: NodeId,
         head: NodeId,
-        lower: f64,
-        upper: f64,
-        cost: f64,
-        reverse_lower: f64,
-        reverse_upper: f64,
-        reverse_cost: f64,
+        forward: EdgeSpec,
+        reverse: EdgeSpec,
     ) -> Result<(EdgeId, EdgeId), McfError> {
-        let forward = self.add_edge(tail, head, lower, upper, cost)?;
-        let reverse = self.add_edge(head, tail, reverse_lower, reverse_upper, reverse_cost)?;
-        self.link_reverse(forward, reverse)?;
-        self.link_reverse(reverse, forward)?;
-        Ok((forward, reverse))
+        let forward_id = self.add_edge(tail, head, forward.lower, forward.upper, forward.cost)?;
+        let reverse_id = self.add_edge(head, tail, reverse.lower, reverse.upper, reverse.cost)?;
+        self.link_reverse(forward_id, reverse_id)?;
+        self.link_reverse(reverse_id, forward_id)?;
+        Ok((forward_id, reverse_id))
     }
 
     pub fn link_reverse(&mut self, edge: EdgeId, reverse: EdgeId) -> Result<(), McfError> {
