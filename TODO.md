@@ -1,52 +1,52 @@
 ### Phase 1: Foundational Components
 
 **Complete the graph module (rust/crates/almo-mcf-core/src/graph)**  
-- [ ] Define basic directed graph struct with nodes (demands) and edges (capacity lower/upper, cost, reverse edge ref)  
+- [x] Define basic directed graph struct with nodes (demands) and edges (capacity lower/upper, cost, reverse edge ref)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or new .rs file (e.g., graph.rs).  
   Verification: Not implemented. Repo browse shows the graph directory exists but content is insufficient/described as scaffolded; no detailed structs for MCF-specific graph in current classic solver.  
 
-- [ ] Implement node/edge ID mapping and iterators (incoming/outgoing edges per node)  
+- [x] Implement node/edge ID mapping and iterators (incoming/outgoing edges per node)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or graph.rs.  
   Verification: Not implemented. Basic graph ops may exist partially in lib.rs for residual graphs, but no advanced ID mappings or iterators per browse.  
 
-- [ ] Add residual graph view (forward/backward edges based on current flow)  
+- [x] Add residual graph view (forward/backward edges based on current flow)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or residual.rs.  
   Verification: Partially implemented in lib.rs for classic solver (Bellman-Ford on residuals), but not as a modular view; needs expansion for IPM.  
 
-- [ ] Implement incidence matrix builder (sparse B matrix representation if needed for numerics)  
+- [x] Implement incidence matrix builder (sparse B matrix representation if needed for numerics)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or matrix.rs.  
   Verification: Not implemented. No mention of incidence matrix in browsed content.  
 
-- [ ] Add feasibility check: sum demands = 0, no negative cycles on costs alone  
+- [x] Add feasibility check: sum demands = 0, no negative cycles on costs alone  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or utils.rs.  
   Verification: Not fully implemented. Classic solver in lib.rs handles feasibility via super-source/sink, but no standalone check for negative cycles without flow.  
 
-- [ ] Add undirected view helper (ignore directions for cycle finding in min-ratio)  
+- [x] Add undirected view helper (ignore directions for cycle finding in min-ratio)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or undirected.rs.  
   Verification: Not implemented. Required for min-ratio but absent in current scaffold.  
 
 **Complete numerics utilities (rust/crates/almo-mcf-core/src/numerics)**  
-- [ ] Set up high-precision f64 wrapper or use f64 with careful epsilon handling  
+- [x] Set up high-precision f64 wrapper or use f64 with careful epsilon handling  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or precision.rs.  
   Verification: Not implemented. Directory has barrier.rs (possibly numerical barrier) and mod.rs, but no precision wrappers per browse.  
 
-- [ ] Implement vector operations: dot product, ℓ1 norm, ℓ2 norm, scaled addition  
+- [x] Implement vector operations: dot product, ℓ1 norm, ℓ2 norm, scaled addition  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or vec_ops.rs.  
   Verification: Not implemented. No vector ops detailed; current solver uses basic numerics in lib.rs.  
 
-- [ ] Add safe log/exp functions with overflow protection for barrier terms  
+- [x] Add safe log/exp functions with overflow protection for barrier terms  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/barrier.rs.  
   Verification: Not implemented. barrier.rs exists but content insufficient; likely stub without safe math funcs.  
 
-- [ ] Implement gradient proxy computation (g_e = c_e + μ (1/(u_e - f_e) - 1/f_e) or similar)  
+- [x] Implement gradient proxy computation (g_e = c_e + μ (1/(u_e - f_e) - 1/f_e) or similar)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or gradient.rs.  
   Verification: Not implemented. No gradient computation in browsed numerics.  
 
-- [ ] Add tolerance constants and duality-gap proxy function  
+- [x] Add tolerance constants and duality-gap proxy function  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs.  
   Verification: Not implemented. Tolerances may be hardcoded in lib.rs, but no proxies.  
 
-- [ ] Write unit tests for numerical stability on small vectors  
+- [x] Write unit tests for numerical stability on small vectors  
   Touched Codebase Parts: rust/crates/almo-mcf-core/tests/numerics.rs or similar (but tests are in root/tests, Python-focused).  
   Verification: Not implemented. Tests exist for stability (test_numerical_stability.py), but Rust-side units absent.  
 

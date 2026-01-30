@@ -60,11 +60,20 @@ fn preprocess_deltas_simd(
 }
 
 fn barrier_term(delta: f64, alpha: f64) -> f64 {
-    (-((1.0 + alpha) * delta.ln())).exp()
+    let exponent = -((1.0 + alpha) * safe_log(delta, 1e-12));
+    safe_exp(exponent, 700.0)
 }
 
 fn barrier_term_derivative(delta: f64, alpha: f64) -> f64 {
     -((1.0 + alpha) / delta) * barrier_term(delta, alpha)
+}
+
+pub fn safe_log(value: f64, min_value: f64) -> f64 {
+    value.max(min_value).ln()
+}
+
+pub fn safe_exp(value: f64, max_exponent: f64) -> f64 {
+    value.min(max_exponent).exp()
 }
 
 pub fn barrier_lengths(
