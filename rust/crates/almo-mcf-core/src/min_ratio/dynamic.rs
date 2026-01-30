@@ -574,6 +574,7 @@ mod tests {
             .expect("bfs should find a path");
         assert_eq!(embedding, vec![(e0, 1), (e1, 1)]);
         assert!(dynamic.spanner.embedding_valid(7));
+        assert_eq!(dynamic.spanner.embedding_endpoints(7), Some((0, 2)));
     }
 
     #[test]

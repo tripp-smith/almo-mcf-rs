@@ -539,4 +539,20 @@ mod tests {
         let instability = spanner.batch_update_edges(&updates, 0.3, 1.1);
         assert_eq!(instability, 2);
     }
+
+    #[test]
+    fn apply_edge_update_respects_thresholds() {
+        let mut spanner = DynamicSpanner::new(2);
+        let edge_id = spanner.insert_edge_with_values(0, 1, 1.0, 0.1);
+        let significant = spanner.apply_edge_update(edge_id, 1.05, 0.15, 0.2, 1.2);
+        assert_eq!(significant, Some(false));
+        assert!((spanner.edges[edge_id].length - 1.05).abs() < 1e-9);
+        assert!((spanner.edges[edge_id].gradient - 0.15).abs() < 1e-9);
+
+        let significant = spanner.apply_edge_update(edge_id, 1.5, 0.6, 0.2, 1.2);
+        assert_eq!(significant, Some(true));
+
+        spanner.delete_edge(edge_id);
+        assert_eq!(spanner.apply_edge_update(edge_id, 2.0, 0.0, 0.2, 1.2), None);
+    }
 }
