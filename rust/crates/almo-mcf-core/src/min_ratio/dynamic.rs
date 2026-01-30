@@ -1,4 +1,4 @@
-use crate::min_ratio::{CycleCandidate, MinRatioOracle, TreeError};
+use crate::min_ratio::{CycleCandidate, MinRatioOracle, OracleQuery, TreeError};
 
 #[derive(Debug, Clone)]
 pub struct TreeChainLevel {
@@ -27,7 +27,7 @@ impl TreeChainLevel {
         }
     }
 
-    pub fn record_instability(&mut self, iter: usize, amount: usize) {
+    pub fn record_instability(&mut self, amount: usize) {
         self.instability_budget = self.instability_budget.saturating_add(amount);
         if self.instability_budget >= self.max_instability {
             self.instability_budget = 0;
@@ -82,16 +82,18 @@ impl TreeChainHierarchy {
     ) -> Result<Option<CycleCandidate>, TreeError> {
         let mut best: Option<CycleCandidate> = None;
         let mut best_score: Option<f64> = None;
+        let query = OracleQuery {
+            iter,
+            node_count,
+            tails,
+            heads,
+            gradients,
+            lengths,
+        };
         for level in &mut self.levels {
-            let candidate = level.oracle.best_cycle_with_rebuild(
-                iter,
-                node_count,
-                tails,
-                heads,
-                gradients,
-                lengths,
-                level.needs_rebuild,
-            )?;
+            let candidate = level
+                .oracle
+                .best_cycle_with_rebuild(query, level.needs_rebuild)?;
             if level.needs_rebuild {
                 level.needs_rebuild = false;
                 level.last_rebuild = iter;
@@ -107,9 +109,9 @@ impl TreeChainHierarchy {
         Ok(best)
     }
 
-    pub fn record_instability(&mut self, iter: usize, amount: usize) {
+    pub fn record_instability(&mut self, amount: usize) {
         for level in &mut self.levels {
-            level.record_instability(iter, amount);
+            level.record_instability(amount);
         }
     }
 }
@@ -200,7 +202,7 @@ impl FullDynamicOracle {
             }
         }
         if instability > 0 {
-            self.hierarchy.record_instability(iter, instability);
+            self.hierarchy.record_instability(instability);
         }
         self.last_gradients = gradients.to_vec();
         self.last_lengths = lengths.to_vec();
@@ -245,7 +247,7 @@ impl FullDynamicOracle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::min_ratio::MinRatioOracle;
+    use crate::min_ratio::{MinRatioOracle, OracleQuery};
     use crate::spanner::DynamicSpanner;
 
     #[test]
@@ -257,7 +259,14 @@ mod tests {
         let mut fallback = MinRatioOracle::new(13, 1);
         let mut hierarchy = TreeChainHierarchy::new(13, 2, 1, 5);
         let fallback_best = fallback
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         let hierarchy_best = hierarchy
@@ -295,9 +304,9 @@ mod tests {
     #[test]
     fn instability_budget_triggers_rebuild_tracking() {
         let mut hierarchy = TreeChainHierarchy::new(9, 2, 3, 2);
-        hierarchy.record_instability(1, 1);
+        hierarchy.record_instability(1);
         assert_eq!(hierarchy.levels[0].last_rebuild, 0);
-        hierarchy.record_instability(2, 1);
+        hierarchy.record_instability(1);
         assert!(hierarchy.levels[0].needs_rebuild);
         let tails = vec![0, 1, 2, 0];
         let heads = vec![1, 2, 0, 2];
@@ -318,7 +327,14 @@ mod tests {
         let mut fallback = MinRatioOracle::new(17, 1);
         let mut dynamic = FullDynamicOracle::new(17, 2, 1, 5, 0.0);
         let fallback_best = fallback
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         let dynamic_best = dynamic
