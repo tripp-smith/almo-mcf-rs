@@ -3,6 +3,16 @@ use crate::trees::{LowStretchTree, TreeError};
 use rayon::prelude::*;
 pub mod dynamic;
 
+#[derive(Debug, Clone, Copy)]
+pub struct OracleQuery<'a> {
+    pub iter: usize,
+    pub node_count: usize,
+    pub tails: &'a [u32],
+    pub heads: &'a [u32],
+    pub gradients: &'a [f64],
+    pub lengths: &'a [f64],
+}
+
 #[derive(Debug, Clone)]
 pub struct CycleCandidate {
     pub ratio: f64,
@@ -104,18 +114,33 @@ impl MinRatioOracle {
 
     pub fn best_cycle(
         &mut self,
-        iter: usize,
-        node_count: usize,
-        tails: &[u32],
-        heads: &[u32],
-        gradients: &[f64],
-        lengths: &[f64],
+        query: OracleQuery<'_>,
     ) -> Result<Option<CycleCandidate>, TreeError> {
-        if self.should_rebuild(iter) {
-            self.rebuild_tree(iter, node_count, tails, heads, lengths)?;
+        self.best_cycle_with_rebuild(query, false)
+    }
+
+    pub fn best_cycle_with_rebuild(
+        &mut self,
+        query: OracleQuery<'_>,
+        force_rebuild: bool,
+    ) -> Result<Option<CycleCandidate>, TreeError> {
+        if force_rebuild || self.should_rebuild(query.iter) {
+            self.rebuild_tree(
+                query.iter,
+                query.node_count,
+                query.tails,
+                query.heads,
+                query.lengths,
+            )?;
         }
         let tree = self.tree.as_ref().expect("tree should exist after rebuild");
-        let best = best_cycle_over_edges(tree, tails, heads, gradients, lengths);
+        let best = best_cycle_over_edges(
+            tree,
+            query.tails,
+            query.heads,
+            query.gradients,
+            query.lengths,
+        );
 
         self.update_stability(best.as_ref());
         Ok(best)
@@ -253,7 +278,14 @@ mod tests {
         let lengths = vec![2.0, 1.0, 4.0];
         let mut oracle = MinRatioOracle::new(5, 1);
         let best = oracle
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         assert!(best.denominator > 0.0);
@@ -275,7 +307,14 @@ mod tests {
         let lengths = vec![1.0, 1.0, 1.0, 2.0];
         let mut oracle = MinRatioOracle::new(11, 2);
         let best = oracle
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         let mut incidence = [0_i32; 3];
@@ -332,7 +371,14 @@ mod tests {
             }
             let mut oracle = MinRatioOracle::new(rng.next_u64(), 1);
             let Some(best) = oracle
-                .best_cycle(0, node_count, &tails, &heads, &gradients, &lengths)
+                .best_cycle(OracleQuery {
+                    iter: 0,
+                    node_count,
+                    tails: &tails,
+                    heads: &heads,
+                    gradients: &gradients,
+                    lengths: &lengths,
+                })
                 .unwrap()
             else {
                 continue;
@@ -357,7 +403,14 @@ mod tests {
         let lengths = vec![1.0, 1.0, 1.0];
         let mut oracle = MinRatioOracle::new(3, 10);
         let best = oracle
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         assert!(
@@ -375,11 +428,25 @@ mod tests {
         let lengths = vec![1.0, 1.0, 1.0];
         let mut oracle = MinRatioOracle::new_with_stability(7, 100, 1, 1e-12);
         oracle
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap();
         assert_eq!(oracle.last_rebuild, 0);
         oracle
-            .best_cycle(1, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 1,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap();
         assert_eq!(oracle.last_rebuild, 1);
     }
@@ -408,7 +475,14 @@ mod tests {
 
         let mut oracle = MinRatioOracle::new(9, 1);
         let best_parallel = oracle
-            .best_cycle(0, node_count, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
 

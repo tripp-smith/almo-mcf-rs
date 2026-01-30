@@ -1,8 +1,20 @@
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmbeddingStep {
+    pub edge: usize,
+    pub dir: i8,
+}
+
+impl EmbeddingStep {
+    pub fn new(edge: usize, dir: i8) -> Self {
+        Self { edge, dir }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EmbeddingPath {
-    pub edges: Vec<usize>,
+    pub steps: Vec<EmbeddingStep>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,13 +87,19 @@ impl DynamicSpanner {
         new_vertex
     }
 
-    pub fn set_embedding(&mut self, original_edge: usize, path_edges: Vec<usize>) {
+    pub fn set_embedding(&mut self, original_edge: usize, path_edges: Vec<EmbeddingStep>) {
         self.embeddings
-            .insert(original_edge, EmbeddingPath { edges: path_edges });
+            .insert(original_edge, EmbeddingPath { steps: path_edges });
     }
 
     pub fn embedding_path(&self, original_edge: usize) -> Option<&EmbeddingPath> {
         self.embeddings.get(&original_edge)
+    }
+
+    pub fn embedding_steps(&self, original_edge: usize) -> Option<&[EmbeddingStep]> {
+        self.embeddings
+            .get(&original_edge)
+            .map(|path| path.steps.as_slice())
     }
 
     pub fn edge_endpoints(&self, edge_id: usize) -> Option<(usize, usize)> {
@@ -98,19 +116,34 @@ impl DynamicSpanner {
         let Some(path) = self.embeddings.get(&original_edge) else {
             return false;
         };
-        let mut prev: Option<(usize, usize)> = None;
-        for edge_id in &path.edges {
-            let Some((u, v)) = self.edge_endpoints(*edge_id) else {
+        if path.steps.is_empty() {
+            return false;
+        }
+        let mut prev_end: Option<usize> = None;
+        for step in &path.steps {
+            if step.dir != 1 && step.dir != -1 {
                 return false;
             };
-            if let Some((prev_u, prev_v)) = prev {
-                if prev_v != u && prev_v != v && prev_u != u && prev_u != v {
+            let Some((u, v)) = self.oriented_endpoints(step.edge, step.dir) else {
+                return false;
+            };
+            if let Some(prev) = prev_end {
+                if prev != u {
                     return false;
                 }
             }
-            prev = Some((u, v));
+            prev_end = Some(v);
         }
         true
+    }
+
+    fn oriented_endpoints(&self, edge_id: usize, dir: i8) -> Option<(usize, usize)> {
+        let (u, v) = self.edge_endpoints(edge_id)?;
+        if dir >= 0 {
+            Some((u, v))
+        } else {
+            Some((v, u))
+        }
     }
 }
 
@@ -123,9 +156,12 @@ mod tests {
         let mut spanner = DynamicSpanner::new(3);
         let e0 = spanner.insert_edge(0, 1);
         let e1 = spanner.insert_edge(1, 2);
-        spanner.set_embedding(10, vec![e0, e1]);
+        spanner.set_embedding(
+            10,
+            vec![EmbeddingStep::new(e0, 1), EmbeddingStep::new(e1, 1)],
+        );
         let embedding = spanner.embedding_path(10).unwrap();
-        assert_eq!(embedding.edges.len(), 2);
+        assert_eq!(embedding.steps.len(), 2);
         assert!(spanner.embedding_valid(10));
     }
 
@@ -134,7 +170,10 @@ mod tests {
         let mut spanner = DynamicSpanner::new(3);
         let e0 = spanner.insert_edge(0, 1);
         let e1 = spanner.insert_edge(1, 2);
-        spanner.set_embedding(11, vec![e0, e1]);
+        spanner.set_embedding(
+            11,
+            vec![EmbeddingStep::new(e0, 1), EmbeddingStep::new(e1, 1)],
+        );
         assert!(spanner.embedding_valid(11));
         spanner.delete_edge(e1);
         assert!(!spanner.embedding_valid(11));
@@ -147,7 +186,25 @@ mod tests {
         assert_eq!(new_vertex, 2);
         assert_eq!(spanner.node_count, 3);
         let e0 = spanner.insert_edge(1, new_vertex);
-        spanner.set_embedding(12, vec![e0]);
+        spanner.set_embedding(12, vec![EmbeddingStep::new(e0, 1)]);
         assert!(spanner.embedding_valid(12));
+    }
+
+    #[test]
+    fn embedding_direction_enforces_path_order() {
+        let mut spanner = DynamicSpanner::new(3);
+        let e0 = spanner.insert_edge(0, 1);
+        let e1 = spanner.insert_edge(1, 2);
+        spanner.set_embedding(
+            13,
+            vec![EmbeddingStep::new(e1, -1), EmbeddingStep::new(e0, -1)],
+        );
+        assert!(spanner.embedding_valid(13));
+
+        spanner.set_embedding(
+            14,
+            vec![EmbeddingStep::new(e0, 1), EmbeddingStep::new(e1, -1)],
+        );
+        assert!(!spanner.embedding_valid(14));
     }
 }

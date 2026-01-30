@@ -1,4 +1,4 @@
-use crate::min_ratio::{CycleCandidate, MinRatioOracle, TreeError};
+use crate::min_ratio::{CycleCandidate, MinRatioOracle, OracleQuery, TreeError};
 
 #[derive(Debug, Clone)]
 pub struct TreeChainLevel {
@@ -7,6 +7,7 @@ pub struct TreeChainLevel {
     pub max_instability: usize,
     pub last_rebuild: usize,
     pub approx_factor: f64,
+    pub needs_rebuild: bool,
 }
 
 impl TreeChainLevel {
@@ -22,14 +23,15 @@ impl TreeChainLevel {
             max_instability,
             last_rebuild: 0,
             approx_factor,
+            needs_rebuild: false,
         }
     }
 
-    pub fn record_instability(&mut self, iter: usize, amount: usize) {
+    pub fn record_instability(&mut self, amount: usize) {
         self.instability_budget = self.instability_budget.saturating_add(amount);
         if self.instability_budget >= self.max_instability {
             self.instability_budget = 0;
-            self.last_rebuild = iter;
+            self.needs_rebuild = true;
         }
     }
 }
@@ -80,10 +82,22 @@ impl TreeChainHierarchy {
     ) -> Result<Option<CycleCandidate>, TreeError> {
         let mut best: Option<CycleCandidate> = None;
         let mut best_score: Option<f64> = None;
+        let query = OracleQuery {
+            iter,
+            node_count,
+            tails,
+            heads,
+            gradients,
+            lengths,
+        };
         for level in &mut self.levels {
             let candidate = level
                 .oracle
-                .best_cycle(iter, node_count, tails, heads, gradients, lengths)?;
+                .best_cycle_with_rebuild(query, level.needs_rebuild)?;
+            if level.needs_rebuild {
+                level.needs_rebuild = false;
+                level.last_rebuild = iter;
+            }
             if let Some(candidate) = candidate {
                 let score = candidate.ratio / (1.0 + level.approx_factor);
                 if best_score.map(|best| score < best).unwrap_or(true) {
@@ -95,9 +109,9 @@ impl TreeChainHierarchy {
         Ok(best)
     }
 
-    pub fn record_instability(&mut self, iter: usize, amount: usize) {
+    pub fn record_instability(&mut self, amount: usize) {
         for level in &mut self.levels {
-            level.record_instability(iter, amount);
+            level.record_instability(amount);
         }
     }
 }
@@ -144,7 +158,10 @@ impl FullDynamicOracle {
         let mut spanner = crate::spanner::DynamicSpanner::new(node_count);
         for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
             let spanner_edge = spanner.insert_edge(tail as usize, head as usize);
-            spanner.set_embedding(edge_id, vec![spanner_edge]);
+            spanner.set_embedding(
+                edge_id,
+                vec![crate::spanner::EmbeddingStep::new(spanner_edge, 1)],
+            );
         }
         self.spanner = spanner;
         self.last_edge_count = tails.len();
@@ -185,7 +202,7 @@ impl FullDynamicOracle {
             }
         }
         if instability > 0 {
-            self.hierarchy.record_instability(iter, instability);
+            self.hierarchy.record_instability(instability);
         }
         self.last_gradients = gradients.to_vec();
         self.last_lengths = lengths.to_vec();
@@ -219,12 +236,18 @@ impl FullDynamicOracle {
         }
         Ok(candidate)
     }
+
+    pub fn edge_embedding(&self, edge_id: usize) -> Option<Vec<(usize, i8)>> {
+        self.spanner
+            .embedding_steps(edge_id)
+            .map(|steps| steps.iter().map(|step| (step.edge, step.dir)).collect())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::min_ratio::MinRatioOracle;
+    use crate::min_ratio::{MinRatioOracle, OracleQuery};
     use crate::spanner::DynamicSpanner;
 
     #[test]
@@ -236,7 +259,14 @@ mod tests {
         let mut fallback = MinRatioOracle::new(13, 1);
         let mut hierarchy = TreeChainHierarchy::new(13, 2, 1, 5);
         let fallback_best = fallback
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         let hierarchy_best = hierarchy
@@ -274,9 +304,17 @@ mod tests {
     #[test]
     fn instability_budget_triggers_rebuild_tracking() {
         let mut hierarchy = TreeChainHierarchy::new(9, 2, 3, 2);
-        hierarchy.record_instability(1, 1);
+        hierarchy.record_instability(1);
         assert_eq!(hierarchy.levels[0].last_rebuild, 0);
-        hierarchy.record_instability(2, 1);
+        hierarchy.record_instability(1);
+        assert!(hierarchy.levels[0].needs_rebuild);
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let gradients = vec![1.0, -2.0, 0.5, -3.0];
+        let lengths = vec![1.0, 2.0, 1.0, 3.0];
+        hierarchy
+            .best_cycle(2, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
         assert_eq!(hierarchy.levels[0].last_rebuild, 2);
     }
 
@@ -289,7 +327,14 @@ mod tests {
         let mut fallback = MinRatioOracle::new(17, 1);
         let mut dynamic = FullDynamicOracle::new(17, 2, 1, 5, 0.0);
         let fallback_best = fallback
-            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
             .unwrap()
             .unwrap();
         let dynamic_best = dynamic
@@ -337,12 +382,26 @@ mod tests {
             .unwrap();
         let mut spanner = DynamicSpanner::new(3);
         let edge = spanner.insert_edge(0, 1);
-        spanner.set_embedding(0, vec![edge]);
+        spanner.set_embedding(0, vec![crate::spanner::EmbeddingStep::new(edge, 1)]);
         dynamic.spanner = spanner;
         assert!(!dynamic.spanner.embedding_valid(2));
         dynamic
             .best_cycle(1, 3, &tails, &heads, &gradients, &lengths)
             .unwrap();
         assert!(dynamic.spanner.embedding_valid(2));
+    }
+
+    #[test]
+    fn dynamic_oracle_exposes_edge_embeddings() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let gradients = vec![1.0, -2.0, 0.5, -3.0];
+        let lengths = vec![1.0, 2.0, 1.0, 3.0];
+        let mut dynamic = FullDynamicOracle::new(51, 2, 1, 5, 0.0);
+        dynamic
+            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        let embedding = dynamic.edge_embedding(1).expect("embedding should exist");
+        assert_eq!(embedding, vec![(1, 1)]);
     }
 }

@@ -1,6 +1,6 @@
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
-use crate::min_ratio::MinRatioOracle;
+use crate::min_ratio::{MinRatioOracle, OracleQuery};
 use crate::numerics::barrier::{barrier_gradient, barrier_lengths};
 use crate::{McfError, McfOptions, McfProblem, Strategy};
 use std::time::Instant;
@@ -103,14 +103,14 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
 
         let best = if let Some(oracle) = fallback_oracle.as_mut() {
             oracle
-                .best_cycle(
+                .best_cycle(OracleQuery {
                     iter,
-                    problem.node_count,
-                    &problem.tails,
-                    &problem.heads,
-                    &gradient,
-                    &lengths,
-                )
+                    node_count: problem.node_count,
+                    tails: &problem.tails,
+                    heads: &problem.heads,
+                    gradients: &gradient,
+                    lengths: &lengths,
+                })
                 .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
         } else if let Some(oracle) = dynamic_oracle.as_mut() {
             oracle
