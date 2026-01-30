@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingStep {
@@ -90,6 +91,73 @@ impl DynamicSpanner {
     pub fn set_embedding(&mut self, original_edge: usize, path_edges: Vec<EmbeddingStep>) {
         self.embeddings
             .insert(original_edge, EmbeddingPath { steps: path_edges });
+    }
+
+    pub fn embed_edge_with_bfs(
+        &mut self,
+        original_edge: usize,
+        start: usize,
+        end: usize,
+    ) -> Option<Vec<EmbeddingStep>> {
+        if start >= self.node_count || end >= self.node_count {
+            return None;
+        }
+        if start == end {
+            return None;
+        }
+        let mut visited = vec![false; self.node_count];
+        let mut parent: Vec<Option<(usize, usize)>> = vec![None; self.node_count];
+        let mut queue = VecDeque::new();
+        visited[start] = true;
+        queue.push_back(start);
+        while let Some(node) = queue.pop_front() {
+            if node == end {
+                break;
+            }
+            let Some(adjacent) = self.adjacency.get(node) else {
+                continue;
+            };
+            for &edge_id in adjacent {
+                let Some(edge) = self.edges.get(edge_id) else {
+                    continue;
+                };
+                if !edge.active {
+                    continue;
+                }
+                let next = if edge.u == node {
+                    edge.v
+                } else if edge.v == node {
+                    edge.u
+                } else {
+                    continue;
+                };
+                if visited[next] {
+                    continue;
+                }
+                visited[next] = true;
+                parent[next] = Some((node, edge_id));
+                queue.push_back(next);
+            }
+        }
+        if !visited[end] {
+            return None;
+        }
+        let mut steps_rev: Vec<EmbeddingStep> = Vec::new();
+        let mut curr = end;
+        while curr != start {
+            let (prev, edge_id) = parent[curr]?;
+            let edge = self.edges.get(edge_id)?;
+            let dir = if edge.u == prev && edge.v == curr {
+                1
+            } else {
+                -1
+            };
+            steps_rev.push(EmbeddingStep::new(edge_id, dir));
+            curr = prev;
+        }
+        steps_rev.reverse();
+        self.set_embedding(original_edge, steps_rev.clone());
+        Some(steps_rev)
     }
 
     pub fn embedding_path(&self, original_edge: usize) -> Option<&EmbeddingPath> {
@@ -206,5 +274,33 @@ mod tests {
             vec![EmbeddingStep::new(e0, 1), EmbeddingStep::new(e1, -1)],
         );
         assert!(!spanner.embedding_valid(14));
+    }
+
+    #[test]
+    fn bfs_embedding_builds_path_steps() {
+        let mut spanner = DynamicSpanner::new(4);
+        let e0 = spanner.insert_edge(0, 1);
+        let e1 = spanner.insert_edge(1, 2);
+        let e2 = spanner.insert_edge(2, 3);
+        let steps = spanner
+            .embed_edge_with_bfs(21, 0, 3)
+            .expect("path should exist");
+        assert_eq!(
+            steps,
+            vec![
+                EmbeddingStep::new(e0, 1),
+                EmbeddingStep::new(e1, 1),
+                EmbeddingStep::new(e2, 1)
+            ]
+        );
+        assert!(spanner.embedding_valid(21));
+    }
+
+    #[test]
+    fn bfs_embedding_returns_none_when_disconnected() {
+        let mut spanner = DynamicSpanner::new(3);
+        spanner.insert_edge(0, 1);
+        assert!(spanner.embed_edge_with_bfs(22, 0, 2).is_none());
+        assert!(!spanner.embedding_valid(22));
     }
 }

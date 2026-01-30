@@ -12,6 +12,8 @@ Task 7.1: Implement Tree-Chain Hierarchy Basics
 Implement a multilevel hierarchy with levels from 0 to L (where L is approximately log log n or another small o(1) depth) to enable recursive edge reduction. Structure each level to hold multiple spanning trees (or distributions over trees) and to sparsify non-tree edges using spanners, facilitating efficient min-ratio queries across changing graph conditions.
 Status: ✅ Completed
 Status: ✅ Completed
+Status: ✅ Completed
+Status: ✅ Completed
 Effort: Medium. Dependencies: Use existing low-stretch spanning tree construction and lowest common ancestor query mechanisms. Deliverables:
 	•	Define a HierarchyLevel structure that includes a vector of trees (each with parent arrays, depths, prefix sums for path lengths, and lowest common ancestor tables), a spanner subgraph, and mappings for embedding original edges into paths within the spanner.
 	•	Create a hierarchy initialization function that sets up L levels, beginning with the finest level (full graph) and progressing to coarser ones.

@@ -319,6 +319,27 @@ mod tests {
     }
 
     #[test]
+    fn instability_budget_resets_after_rebuild() {
+        let mut hierarchy = TreeChainHierarchy::new(19, 1, 5, 3);
+        hierarchy.record_instability(1);
+        assert!(!hierarchy.levels[0].needs_rebuild);
+        hierarchy.record_instability(1);
+        assert!(!hierarchy.levels[0].needs_rebuild);
+        hierarchy.record_instability(1);
+        assert!(hierarchy.levels[0].needs_rebuild);
+
+        let tails = vec![0, 1, 2];
+        let heads = vec![1, 2, 0];
+        let gradients = vec![0.5, -0.3, -0.1];
+        let lengths = vec![1.0, 1.0, 1.0];
+        hierarchy
+            .best_cycle(3, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        assert!(!hierarchy.levels[0].needs_rebuild);
+        assert_eq!(hierarchy.levels[0].instability_budget, 0);
+    }
+
+    #[test]
     fn dynamic_oracle_matches_fallback_on_small_graph() {
         let tails = vec![0, 1, 2, 0];
         let heads = vec![1, 2, 0, 2];
