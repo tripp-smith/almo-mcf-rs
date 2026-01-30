@@ -114,6 +114,16 @@ impl TreeChainHierarchy {
             level.record_instability(amount);
         }
     }
+
+    pub fn update_instability_threshold(&mut self, edge_count: usize, exponent: f64) {
+        if edge_count == 0 || exponent <= 0.0 {
+            return;
+        }
+        let tau = (edge_count as f64).powf(exponent).ceil().max(1.0) as usize;
+        for level in &mut self.levels {
+            level.max_instability = level.max_instability.max(tau);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +136,7 @@ pub struct FullDynamicOracle {
     node_count: usize,
     gradient_change: f64,
     length_factor: f64,
+    instability_exponent: f64,
 }
 
 impl FullDynamicOracle {
@@ -151,6 +162,7 @@ impl FullDynamicOracle {
             node_count: 0,
             gradient_change: 0.5,
             length_factor: 1.25,
+            instability_exponent: 0.1,
         }
     }
 
@@ -176,6 +188,10 @@ impl FullDynamicOracle {
         if self.spanner.node_count != node_count {
             self.rebuild_spanner(node_count, tails, heads);
         }
+    }
+
+    pub fn set_instability_exponent(&mut self, exponent: f64) {
+        self.instability_exponent = exponent;
     }
 
     fn record_updates(&mut self, gradients: &[f64], lengths: &[f64]) {
@@ -218,6 +234,8 @@ impl FullDynamicOracle {
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.ensure_spanner(node_count, tails, heads);
+        self.hierarchy
+            .update_instability_threshold(tails.len(), self.instability_exponent);
         self.record_updates(gradients, lengths);
         let candidate = self
             .hierarchy
@@ -235,6 +253,19 @@ impl FullDynamicOracle {
             }
         }
         Ok(candidate)
+    }
+
+    pub fn reduce_edge(
+        &mut self,
+        edge_id: usize,
+        tail: usize,
+        head: usize,
+    ) -> Option<Vec<(usize, i8)>> {
+        if let Some(steps) = self.spanner.embedding_steps(edge_id) {
+            return Some(steps.iter().map(|step| (step.edge, step.dir)).collect());
+        }
+        let steps = self.spanner.embed_edge_with_bfs(edge_id, tail, head)?;
+        Some(steps.iter().map(|step| (step.edge, step.dir)).collect())
     }
 
     pub fn edge_embedding(&self, edge_id: usize) -> Option<Vec<(usize, i8)>> {
@@ -424,5 +455,44 @@ mod tests {
             .unwrap();
         let embedding = dynamic.edge_embedding(1).expect("embedding should exist");
         assert_eq!(embedding, vec![(1, 1)]);
+    }
+
+    #[test]
+    fn dynamic_oracle_reduces_edges_with_embeddings() {
+        let tails = vec![0, 1, 2];
+        let heads = vec![1, 2, 0];
+        let gradients = vec![0.2, -0.1, 0.3];
+        let lengths = vec![1.0, 1.0, 1.0];
+        let mut dynamic = FullDynamicOracle::new(59, 2, 1, 5, 0.0);
+        dynamic
+            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        let embedding = dynamic
+            .reduce_edge(1, tails[1] as usize, heads[1] as usize)
+            .expect("embedding should exist");
+        assert_eq!(embedding, vec![(1, 1)]);
+    }
+
+    #[test]
+    fn dynamic_oracle_builds_reduction_for_missing_embedding() {
+        let mut dynamic = FullDynamicOracle::new(61, 1, 1, 2, 0.0);
+        dynamic.spanner = DynamicSpanner::new(3);
+        let e0 = dynamic.spanner.insert_edge(0, 1);
+        let e1 = dynamic.spanner.insert_edge(1, 2);
+        let embedding = dynamic
+            .reduce_edge(7, 0, 2)
+            .expect("bfs should find a path");
+        assert_eq!(embedding, vec![(e0, 1), (e1, 1)]);
+        assert!(dynamic.spanner.embedding_valid(7));
+    }
+
+    #[test]
+    fn instability_threshold_uses_edge_exponent() {
+        let mut hierarchy = TreeChainHierarchy::new(7, 2, 1, 1);
+        hierarchy.update_instability_threshold(1024, 0.1);
+        let threshold = hierarchy.levels[0].max_instability;
+        assert!(threshold >= 2);
+        hierarchy.update_instability_threshold(4, 0.1);
+        assert_eq!(hierarchy.levels[0].max_instability, threshold);
     }
 }
