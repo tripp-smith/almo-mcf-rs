@@ -190,6 +190,13 @@ impl FullDynamicOracle {
         }
     }
 
+    fn refresh_spanner_values(&mut self, gradients: &[f64], lengths: &[f64]) {
+        for (edge_id, (&gradient, &length)) in gradients.iter().zip(lengths.iter()).enumerate() {
+            self.spanner
+                .update_edge_values(edge_id, length.abs(), gradient);
+        }
+    }
+
     pub fn set_instability_exponent(&mut self, exponent: f64) {
         self.instability_exponent = exponent;
     }
@@ -234,13 +241,58 @@ impl FullDynamicOracle {
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.ensure_spanner(node_count, tails, heads);
+        self.refresh_spanner_values(gradients, lengths);
         self.hierarchy
             .update_instability_threshold(tails.len(), self.instability_exponent);
         self.record_updates(gradients, lengths);
-        let candidate = self
-            .hierarchy
-            .best_cycle(iter, node_count, tails, heads, gradients, lengths)?;
-        if let Some(candidate) = candidate.as_ref() {
+        let query = OracleQuery {
+            iter,
+            node_count,
+            tails,
+            heads,
+            gradients,
+            lengths,
+        };
+
+        let mut candidates: Vec<(CycleCandidate, f64)> = Vec::new();
+        for level in self.hierarchy.levels.iter_mut().rev() {
+            let candidate = level
+                .oracle
+                .best_cycle_with_rebuild(query, level.needs_rebuild)?;
+            if level.needs_rebuild {
+                level.needs_rebuild = false;
+                level.last_rebuild = iter;
+            }
+            if let Some(candidate) = candidate {
+                candidates.push((candidate, level.approx_factor));
+            }
+        }
+
+        let mut best: Option<CycleCandidate> = None;
+        let mut best_score: Option<f64> = None;
+        for (candidate, approx_factor) in candidates {
+            let expanded = self
+                .expand_cycle_edges(&candidate.cycle_edges, tails, heads)
+                .unwrap_or_else(|| candidate.cycle_edges.clone());
+            let Some((numerator, denominator)) =
+                Self::aggregate_cycle_metrics(&expanded, gradients, lengths)
+            else {
+                continue;
+            };
+            let ratio = numerator / denominator;
+            let score = ratio / (1.0 + approx_factor);
+            if best_score.map(|best| score < best).unwrap_or(true) {
+                best_score = Some(score);
+                best = Some(CycleCandidate {
+                    ratio,
+                    numerator,
+                    denominator,
+                    cycle_edges: expanded,
+                });
+            }
+        }
+
+        if let Some(candidate) = best.as_ref() {
             let mut valid = true;
             for (edge_id, _) in &candidate.cycle_edges {
                 if !self.spanner.embedding_valid(*edge_id) {
@@ -252,7 +304,8 @@ impl FullDynamicOracle {
                 self.rebuild_spanner(node_count, tails, heads);
             }
         }
-        Ok(candidate)
+
+        Ok(best)
     }
 
     pub fn reduce_edge(
@@ -273,13 +326,50 @@ impl FullDynamicOracle {
             .embedding_steps(edge_id)
             .map(|steps| steps.iter().map(|step| (step.edge, step.dir)).collect())
     }
+
+    fn expand_cycle_edges(
+        &mut self,
+        cycle_edges: &[(usize, i8)],
+        tails: &[u32],
+        heads: &[u32],
+    ) -> Option<Vec<(usize, i8)>> {
+        let mut expanded = Vec::new();
+        for &(edge_id, dir) in cycle_edges {
+            let embedding =
+                self.reduce_edge(edge_id, tails[edge_id] as usize, heads[edge_id] as usize)?;
+            for (embedded_edge, embedded_dir) in embedding {
+                expanded.push((embedded_edge, dir * embedded_dir));
+            }
+        }
+        Some(expanded)
+    }
+
+    fn aggregate_cycle_metrics(
+        cycle_edges: &[(usize, i8)],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) -> Option<(f64, f64)> {
+        if cycle_edges.is_empty() {
+            return None;
+        }
+        let mut numerator = 0.0;
+        let mut denominator = 0.0;
+        for &(edge_id, dir) in cycle_edges {
+            numerator += (dir as f64) * gradients[edge_id];
+            denominator += lengths[edge_id].abs();
+        }
+        if denominator <= 0.0 {
+            return None;
+        }
+        Some((numerator, denominator))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::min_ratio::{MinRatioOracle, OracleQuery};
-    use crate::spanner::DynamicSpanner;
+    use crate::spanner::{DynamicSpanner, EmbeddingStep};
 
     #[test]
     fn hierarchy_matches_fallback_cycle() {
@@ -494,5 +584,38 @@ mod tests {
         assert!(threshold >= 2);
         hierarchy.update_instability_threshold(4, 0.1);
         assert_eq!(hierarchy.levels[0].max_instability, threshold);
+    }
+
+    #[test]
+    fn dynamic_oracle_expands_cycle_edges_with_embeddings() {
+        let tails = vec![0, 1, 0];
+        let heads = vec![1, 2, 2];
+        let gradients = vec![0.5, -1.5, 0.2];
+        let lengths = vec![1.0, 2.0, 1.0];
+        let mut dynamic = FullDynamicOracle::new(73, 1, 1, 3, 0.0);
+        dynamic
+            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        dynamic
+            .spanner
+            .set_embedding(0, vec![EmbeddingStep::new(1, 1), EmbeddingStep::new(2, 1)]);
+        let expanded = dynamic
+            .expand_cycle_edges(&[(0, 1)], &tails, &heads)
+            .expect("expansion should succeed");
+        assert_eq!(expanded, vec![(1, 1), (2, 1)]);
+    }
+
+    #[test]
+    fn dynamic_oracle_aggregates_cycle_metrics() {
+        let gradients = vec![1.5, -2.0, 0.5];
+        let lengths = vec![2.0, 3.0, 1.0];
+        let metrics = FullDynamicOracle::aggregate_cycle_metrics(
+            &[(0, 1), (1, -1), (2, 1)],
+            &gradients,
+            &lengths,
+        )
+        .expect("metrics should exist");
+        assert!((metrics.0 - 4.0).abs() < 1e-9);
+        assert!((metrics.1 - 6.0).abs() < 1e-9);
     }
 }
