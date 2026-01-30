@@ -178,7 +178,7 @@ impl FullDynamicOracle {
         }
     }
 
-    fn record_updates(&mut self, iter: usize, gradients: &[f64], lengths: &[f64]) {
+    fn record_updates(&mut self, _iter: usize, gradients: &[f64], lengths: &[f64]) {
         if self.last_gradients.is_empty() || self.last_lengths.is_empty() {
             self.last_gradients = gradients.to_vec();
             self.last_lengths = lengths.to_vec();
