@@ -16,6 +16,8 @@ Status: ✅ Completed
 Status: ✅ Completed
 Status: ✅ Completed
 Status: ✅ Completed
+Status: ✅ Completed
+Status: ✅ Completed
 Effort: Medium. Dependencies: Use existing low-stretch spanning tree construction and lowest common ancestor query mechanisms. Deliverables:
 	•	Define a HierarchyLevel structure that includes a vector of trees (each with parent arrays, depths, prefix sums for path lengths, and lowest common ancestor tables), a spanner subgraph, and mappings for embedding original edges into paths within the spanner.
 	•	Create a hierarchy initialization function that sets up L levels, beginning with the finest level (full graph) and progressing to coarser ones.

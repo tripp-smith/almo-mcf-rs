@@ -205,6 +205,27 @@ impl DynamicSpanner {
         true
     }
 
+    pub fn embedding_endpoints(&self, original_edge: usize) -> Option<(usize, usize)> {
+        let path = self.embeddings.get(&original_edge)?;
+        let mut start: Option<usize> = None;
+        let mut current: Option<usize> = None;
+        for step in &path.steps {
+            let (u, v) = self.oriented_endpoints(step.edge, step.dir)?;
+            if let Some(prev) = current {
+                if prev != u {
+                    return None;
+                }
+            } else {
+                start = Some(u);
+            }
+            current = Some(v);
+        }
+        match (start, current) {
+            (Some(u), Some(v)) => Some((u, v)),
+            _ => None,
+        }
+    }
+
     fn oriented_endpoints(&self, edge_id: usize, dir: i8) -> Option<(usize, usize)> {
         let (u, v) = self.edge_endpoints(edge_id)?;
         if dir >= 0 {
@@ -258,6 +279,36 @@ mod tests {
         assert!(spanner.embedding_valid(12));
     }
 
+    #[test]
+    fn embedding_endpoints_follow_path_orientation() {
+        let mut spanner = DynamicSpanner::new(4);
+        let e0 = spanner.insert_edge(0, 1);
+        let e1 = spanner.insert_edge(1, 2);
+        let e2 = spanner.insert_edge(2, 3);
+        spanner.set_embedding(
+            20,
+            vec![
+                EmbeddingStep::new(e0, 1),
+                EmbeddingStep::new(e1, 1),
+                EmbeddingStep::new(e2, 1),
+            ],
+        );
+        assert_eq!(spanner.embedding_endpoints(20), Some((0, 3)));
+    }
+
+    #[test]
+    fn bfs_embedding_connects_expected_endpoints() {
+        let mut spanner = DynamicSpanner::new(4);
+        spanner.insert_edge(0, 1);
+        spanner.insert_edge(1, 2);
+        spanner.insert_edge(2, 3);
+        let steps = spanner
+            .embed_edge_with_bfs(21, 0, 3)
+            .expect("path should exist");
+        assert_eq!(steps.len(), 3);
+        assert!(spanner.embedding_valid(21));
+        assert_eq!(spanner.embedding_endpoints(21), Some((0, 3)));
+    }
     #[test]
     fn embedding_direction_enforces_path_order() {
         let mut spanner = DynamicSpanner::new(3);
