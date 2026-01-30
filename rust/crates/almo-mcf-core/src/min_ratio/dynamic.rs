@@ -178,7 +178,7 @@ impl FullDynamicOracle {
         }
     }
 
-    fn record_updates(&mut self, _iter: usize, gradients: &[f64], lengths: &[f64]) {
+    fn record_updates(&mut self, gradients: &[f64], lengths: &[f64]) {
         if self.last_gradients.is_empty() || self.last_lengths.is_empty() {
             self.last_gradients = gradients.to_vec();
             self.last_lengths = lengths.to_vec();
@@ -218,7 +218,7 @@ impl FullDynamicOracle {
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.ensure_spanner(node_count, tails, heads);
-        self.record_updates(iter, gradients, lengths);
+        self.record_updates(gradients, lengths);
         let candidate = self
             .hierarchy
             .best_cycle(iter, node_count, tails, heads, gradients, lengths)?;
