@@ -18,11 +18,19 @@ pub struct EmbeddingPath {
     pub steps: Vec<EmbeddingStep>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EmbeddingMetrics {
+    pub total_length: f64,
+    pub total_gradient: f64,
+}
+
 #[derive(Debug, Clone)]
 struct SpannerEdge {
     u: usize,
     v: usize,
     active: bool,
+    length: f64,
+    gradient: f64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -46,8 +54,24 @@ impl DynamicSpanner {
     }
 
     pub fn insert_edge(&mut self, u: usize, v: usize) -> usize {
+        self.insert_edge_with_values(u, v, 1.0, 0.0)
+    }
+
+    pub fn insert_edge_with_values(
+        &mut self,
+        u: usize,
+        v: usize,
+        length: f64,
+        gradient: f64,
+    ) -> usize {
         let edge_id = self.edges.len();
-        self.edges.push(SpannerEdge { u, v, active: true });
+        self.edges.push(SpannerEdge {
+            u,
+            v,
+            active: true,
+            length,
+            gradient,
+        });
         if u >= self.adjacency.len() || v >= self.adjacency.len() {
             let new_len = usize::max(u, v) + 1;
             self.adjacency.resize_with(new_len, Vec::new);
@@ -86,6 +110,94 @@ impl DynamicSpanner {
         self.node_count += 1;
         self.adjacency.push(Vec::new());
         new_vertex
+    }
+
+    pub fn split_vertex_with_edges(&mut self, vertex: usize, edges_to_move: &[usize]) -> usize {
+        let new_vertex = self.split_vertex(vertex);
+        for &edge_id in edges_to_move {
+            let Some(edge) = self.edges.get_mut(edge_id) else {
+                continue;
+            };
+            if !edge.active {
+                continue;
+            }
+            let mut moved = false;
+            if edge.u == vertex {
+                edge.u = new_vertex;
+                moved = true;
+            }
+            if edge.v == vertex {
+                edge.v = new_vertex;
+                moved = true;
+            }
+            if moved {
+                if let Some(list) = self.adjacency.get_mut(vertex) {
+                    list.retain(|&id| id != edge_id);
+                }
+                self.adjacency[new_vertex].push(edge_id);
+            }
+        }
+        new_vertex
+    }
+
+    pub fn update_edge_values(&mut self, edge_id: usize, length: f64, gradient: f64) -> bool {
+        let Some(edge) = self.edges.get_mut(edge_id) else {
+            return false;
+        };
+        if !edge.active {
+            return false;
+        }
+        edge.length = length;
+        edge.gradient = gradient;
+        true
+    }
+
+    pub fn apply_edge_update(
+        &mut self,
+        edge_id: usize,
+        length: f64,
+        gradient: f64,
+        gradient_threshold: f64,
+        length_factor: f64,
+    ) -> Option<bool> {
+        let edge = self.edges.get(edge_id)?;
+        if !edge.active {
+            return None;
+        }
+        let mut significant = false;
+        if (gradient - edge.gradient).abs() > gradient_threshold {
+            significant = true;
+        }
+        if edge.length > 0.0 && length > 0.0 {
+            let ratio = if length > edge.length {
+                length / edge.length
+            } else {
+                edge.length / length
+            };
+            if ratio > length_factor {
+                significant = true;
+            }
+        }
+        self.update_edge_values(edge_id, length, gradient);
+        Some(significant)
+    }
+
+    pub fn batch_update_edges(
+        &mut self,
+        updates: &[(usize, f64, f64)],
+        gradient_threshold: f64,
+        length_factor: f64,
+    ) -> usize {
+        let mut instability = 0;
+        for &(edge_id, length, gradient) in updates {
+            if self
+                .apply_edge_update(edge_id, length, gradient, gradient_threshold, length_factor)
+                .unwrap_or(false)
+            {
+                instability += 1;
+            }
+        }
+        instability
     }
 
     pub fn set_embedding(&mut self, original_edge: usize, path_edges: Vec<EmbeddingStep>) {
@@ -226,6 +338,43 @@ impl DynamicSpanner {
         }
     }
 
+    pub fn embedding_metrics(&self, original_edge: usize) -> Option<EmbeddingMetrics> {
+        let path = self.embeddings.get(&original_edge)?;
+        if path.steps.is_empty() {
+            return None;
+        }
+        let mut total_length = 0.0;
+        let mut total_gradient = 0.0;
+        let mut current: Option<usize> = None;
+        for step in &path.steps {
+            let (u, v) = self.oriented_endpoints(step.edge, step.dir)?;
+            if let Some(prev) = current {
+                if prev != u {
+                    return None;
+                }
+            }
+            let edge = self.edges.get(step.edge)?;
+            if !edge.active {
+                return None;
+            }
+            total_length += edge.length;
+            total_gradient += (step.dir as f64) * edge.gradient;
+            current = Some(v);
+        }
+        Some(EmbeddingMetrics {
+            total_length,
+            total_gradient,
+        })
+    }
+
+    pub fn embedding_ratio(&self, original_edge: usize) -> Option<f64> {
+        let metrics = self.embedding_metrics(original_edge)?;
+        if metrics.total_length <= 0.0 {
+            return None;
+        }
+        Some(metrics.total_gradient / metrics.total_length)
+    }
+
     fn oriented_endpoints(&self, edge_id: usize, dir: i8) -> Option<(usize, usize)> {
         let (u, v) = self.edge_endpoints(edge_id)?;
         if dir >= 0 {
@@ -353,5 +502,41 @@ mod tests {
         spanner.insert_edge(0, 1);
         assert!(spanner.embed_edge_with_bfs(22, 0, 2).is_none());
         assert!(!spanner.embedding_valid(22));
+    }
+
+    #[test]
+    fn embedding_metrics_accumulates_values() {
+        let mut spanner = DynamicSpanner::new(3);
+        let e0 = spanner.insert_edge_with_values(0, 1, 2.0, 1.5);
+        let e1 = spanner.insert_edge_with_values(2, 1, 3.0, -2.0);
+        spanner.set_embedding(
+            30,
+            vec![EmbeddingStep::new(e0, 1), EmbeddingStep::new(e1, -1)],
+        );
+        let metrics = spanner.embedding_metrics(30).expect("metrics should exist");
+        assert!((metrics.total_length - 5.0).abs() < 1e-9);
+        assert!((metrics.total_gradient - 3.5).abs() < 1e-9);
+        assert!(spanner.embedding_ratio(30).is_some());
+    }
+
+    #[test]
+    fn split_vertex_reassigns_edges() {
+        let mut spanner = DynamicSpanner::new(3);
+        let e0 = spanner.insert_edge(0, 1);
+        let e1 = spanner.insert_edge(1, 2);
+        let new_vertex = spanner.split_vertex_with_edges(1, &[e0]);
+        assert_eq!(new_vertex, 3);
+        assert_eq!(spanner.edge_endpoints(e0), Some((0, 3)));
+        assert_eq!(spanner.edge_endpoints(e1), Some((1, 2)));
+    }
+
+    #[test]
+    fn batch_update_edges_tracks_instability() {
+        let mut spanner = DynamicSpanner::new(2);
+        let e0 = spanner.insert_edge_with_values(0, 1, 1.0, 0.0);
+        let e1 = spanner.insert_edge_with_values(0, 1, 2.0, 0.5);
+        let updates = vec![(e0, 1.1, 0.6), (e1, 2.2, 0.9)];
+        let instability = spanner.batch_update_edges(&updates, 0.3, 1.1);
+        assert_eq!(instability, 2);
     }
 }
