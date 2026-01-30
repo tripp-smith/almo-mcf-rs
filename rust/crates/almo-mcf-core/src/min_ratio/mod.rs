@@ -111,7 +111,20 @@ impl MinRatioOracle {
         gradients: &[f64],
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
-        if self.should_rebuild(iter) {
+        self.best_cycle_with_rebuild(iter, node_count, tails, heads, gradients, lengths, false)
+    }
+
+    pub fn best_cycle_with_rebuild(
+        &mut self,
+        iter: usize,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+        force_rebuild: bool,
+    ) -> Result<Option<CycleCandidate>, TreeError> {
+        if force_rebuild || self.should_rebuild(iter) {
             self.rebuild_tree(iter, node_count, tails, heads, lengths)?;
         }
         let tree = self.tree.as_ref().expect("tree should exist after rebuild");
