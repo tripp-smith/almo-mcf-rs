@@ -338,7 +338,7 @@ impl FullDynamicOracle {
             let embedding =
                 self.reduce_edge(edge_id, tails[edge_id] as usize, heads[edge_id] as usize)?;
             for (embedded_edge, embedded_dir) in embedding {
-                expanded.push((embedded_edge, (dir * embedded_dir) as i8));
+                expanded.push((embedded_edge, dir * embedded_dir));
             }
         }
         Some(expanded)
