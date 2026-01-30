@@ -199,11 +199,11 @@
   Verification: Not implemented.  
 
 **Complete Python public API (python/almo_mcf)**  
-- [ ] Create typing.py with type aliases (FlowDict, Cost, Demand, etc.)  
+- [x] Create typing.py with type aliases (FlowDict, Cost, Demand, etc.)  
   Touched Codebase Parts: python/almo_mcf/typing.py (new file).  
   Verification: Not implemented. File does not exist.  
 
-- [ ] Add _version.py with __version__ string  
+- [x] Add _version.py with __version__ string  
   Touched Codebase Parts: python/almo_mcf/_version.py (new file).  
   Verification: Not implemented. File does not exist.  
 
@@ -219,7 +219,7 @@
   Touched Codebase Parts: python/almo_mcf/_core.py (new or extend).  
   Verification: Not implemented. No _core.py listed.  
 
-- [ ] Write example usage in __init__.py docstring  
+- [x] Write example usage in __init__.py docstring  
   Touched Codebase Parts: python/almo_mcf/__init__.py.  
   Verification: Partially implemented (__init__.py exists for smoke), but expand docstring.  
 
