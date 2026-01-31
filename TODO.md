@@ -207,15 +207,15 @@
   Touched Codebase Parts: python/almo_mcf/_version.py (new file).  
   Verification: Not implemented. File does not exist.  
 
-- [ ] Extend nx.py: implement min_cost_flow() returning flow dict  
+- [x] Extend nx.py: implement min_cost_flow() returning flow dict  
   Touched Codebase Parts: python/almo_mcf/nx.py.  
   Verification: Partially implemented (exists with validation), but needs full flow dict return if incomplete.  
 
-- [ ] Implement min_cost_flow_cost() returning scalar  
+- [x] Implement min_cost_flow_cost() returning scalar  
   Touched Codebase Parts: python/almo_mcf/nx.py.  
   Verification: Partially implemented; exists but tie to IPM.  
 
-- [ ] Add low-level array-based API in _core.py (if planned)  
+- [x] Add low-level array-based API in _core.py (if planned)  
   Touched Codebase Parts: python/almo_mcf/_core.py (new or extend).  
   Verification: Not implemented. No _core.py listed.  
 

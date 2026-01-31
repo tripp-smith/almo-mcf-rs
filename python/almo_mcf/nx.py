@@ -12,6 +12,7 @@ import math
 
 import numpy as np
 
+from .typing import FlowDict
 
 def _load_core():
     try:
@@ -64,7 +65,7 @@ def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]
     return tails, heads, lower, upper, cost, demand, index, edges
 
 
-def min_cost_flow(G) -> Dict:
+def min_cost_flow(G) -> FlowDict:
     """Return a min-cost flow dict in NetworkX format.
 
     Args:
@@ -81,17 +82,17 @@ def min_cost_flow(G) -> Dict:
         np.asarray(cost, dtype=np.int64),
         np.asarray(demand, dtype=np.int64),
     )
-    flow_dict: Dict = {node: {} for node in G.nodes()}
+    flow_dict: FlowDict = {node: {} for node in G.nodes()}
     for (u, v, _data), f in zip(edges, flow.tolist()):
         flow_dict[u][v] = int(f)
     return flow_dict
 
 
-def min_cost_flow_cost(G, flow_dict: Dict) -> int:
+def min_cost_flow_cost(G, flow_dict: FlowDict) -> int:
     """Compute the total cost for a flow dict in NetworkX format."""
     total = 0
     for u, v, data in G.edges(data=True):
-        flow = flow_dict[u][v]
+        flow = flow_dict.get(u, {}).get(v, 0)
         edge_cost = data.get("weight", data.get("cost", 0))
         total += int(flow) * int(edge_cost)
     return total
