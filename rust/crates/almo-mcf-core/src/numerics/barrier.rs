@@ -82,6 +82,7 @@ pub fn barrier_lengths(
     upper: &[f64],
     alpha: f64,
     min_value: f64,
+    threads: usize,
 ) -> Vec<f64> {
     assert_eq!(flow.len(), lower.len());
     assert_eq!(flow.len(), upper.len());
@@ -91,7 +92,13 @@ pub fn barrier_lengths(
     #[cfg(feature = "parallel")]
     {
         let mut output = vec![0.0; upper_delta.len()];
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let available = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let threads = if threads == 0 {
+            available
+        } else {
+            threads.min(available)
+        }
+        .max(1);
         let chunk_size = (upper_delta.len() + threads - 1) / threads;
         std::thread::scope(|scope| {
             for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
@@ -115,6 +122,7 @@ pub fn barrier_lengths(
 
     #[cfg(not(feature = "parallel"))]
     {
+        let _ = threads;
         upper_delta
             .iter()
             .zip(lower_delta.iter())
@@ -129,6 +137,7 @@ pub fn barrier_gradient(
     upper: &[f64],
     alpha: f64,
     min_value: f64,
+    threads: usize,
 ) -> Vec<f64> {
     assert_eq!(flow.len(), lower.len());
     assert_eq!(flow.len(), upper.len());
@@ -138,7 +147,13 @@ pub fn barrier_gradient(
     #[cfg(feature = "parallel")]
     {
         let mut output = vec![0.0; upper_delta.len()];
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let available = std::thread::available_parallelism().map_or(1, |n| n.get());
+        let threads = if threads == 0 {
+            available
+        } else {
+            threads.min(available)
+        }
+        .max(1);
         let chunk_size = (upper_delta.len() + threads - 1) / threads;
         std::thread::scope(|scope| {
             for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
@@ -164,6 +179,7 @@ pub fn barrier_gradient(
 
     #[cfg(not(feature = "parallel"))]
     {
+        let _ = threads;
         upper_delta
             .iter()
             .zip(lower_delta.iter())
@@ -234,7 +250,7 @@ mod tests {
         alpha: f64,
         min_value: f64,
     ) -> f64 {
-        barrier_lengths(flow, lower, upper, alpha, min_value)
+        barrier_lengths(flow, lower, upper, alpha, min_value, 0)
             .iter()
             .sum::<f64>()
     }
@@ -248,7 +264,7 @@ mod tests {
         let min_value = 1e-9;
 
         let expected = serial_lengths(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -264,7 +280,7 @@ mod tests {
         let min_value = 1e-9;
 
         let expected = serial_gradient(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -279,8 +295,8 @@ mod tests {
         let alpha = 0.03;
         let min_value = 1e-9;
 
-        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
-        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
+        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
 
         for value in lengths.iter().chain(gradient.iter()) {
             assert!(value.is_finite());
@@ -299,7 +315,7 @@ mod tests {
         let min_value = 1e-9;
         let eps = 1e-6;
 
-        let analytic = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        let analytic = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
 
         for idx in 0..flow.len() {
             let original = flow[idx];
@@ -323,9 +339,9 @@ mod tests {
         let alpha = 0.05;
         let min_value = 1e-9;
 
-        let middle = barrier_lengths(&[5.0], &lower, &upper, alpha, min_value)[0];
-        let near_lower = barrier_lengths(&[0.1], &lower, &upper, alpha, min_value)[0];
-        let near_upper = barrier_lengths(&[9.9], &lower, &upper, alpha, min_value)[0];
+        let middle = barrier_lengths(&[5.0], &lower, &upper, alpha, min_value, 0)[0];
+        let near_lower = barrier_lengths(&[0.1], &lower, &upper, alpha, min_value, 0)[0];
+        let near_upper = barrier_lengths(&[9.9], &lower, &upper, alpha, min_value, 0)[0];
 
         assert!(near_lower > middle);
         assert!(near_upper > middle);
@@ -341,7 +357,7 @@ mod tests {
         let alpha = 0.1;
         let min_value = 1e-9;
 
-        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
         assert_close(gradient[0], 0.0, 1e-12);
     }
 
@@ -355,7 +371,7 @@ mod tests {
         let alpha = 0.2;
         let min_value = 1e-9;
 
-        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
+        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
         let reference: Vec<f64> = flow
             .iter()
             .zip(lower.iter())
@@ -382,7 +398,7 @@ mod tests {
         let min_value = 1e-9;
 
         let expected = serial_lengths(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -399,7 +415,7 @@ mod tests {
         let min_value = 1e-9;
 
         let expected = serial_gradient(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value);
+        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);

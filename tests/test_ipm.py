@@ -51,6 +51,8 @@ def test_ipm_rounding_produces_integral_flow():
         max_iters=50,
         tolerance=1e6,
         seed=7,
+        threads=2,
+        alpha=0.0005,
         return_stats=True,
     )
     assert stats is not None
@@ -82,6 +84,8 @@ def test_run_ipm_full_dynamic_emits_stats():
         max_iters=1,
         tolerance=0.0,
         seed=11,
+        threads=2,
+        alpha=0.0005,
     )
     assert flow.shape[0] == len(edges)
     assert stats["termination"] in {
@@ -117,6 +121,8 @@ def test_run_ipm_periodic_rebuild_emits_stats():
         max_iters=1,
         tolerance=0.0,
         seed=19,
+        threads=2,
+        alpha=0.0005,
     )
     assert flow.shape[0] == len(edges)
     assert stats["termination"] in {

@@ -242,19 +242,19 @@
   Verification: Partially implemented; needs IPM focus.  
 
 **Add benchmarks and tuning (benches/)**  
-- [ ] Update bench_ipm.rs with realistic graph families  
+- [x] Update bench_ipm.rs with realistic graph families  
   Touched Codebase Parts: rust/crates/almo-mcf-core/benches/bench_ipm.rs (benches dir not found; create).  
   Verification: Not implemented. No benches dir.  
 
-- [ ] Add Python benchmark script comparing IPM vs NetworkX  
+- [x] Add Python benchmark script comparing IPM vs NetworkX  
   Touched Codebase Parts: tests/test_benchmarks.py (exists; extend).  
   Verification: Not implemented for IPM.  
 
-- [ ] Tune parameters (threads, rebuild frequency, α constant) via command-line flags  
+- [x] Tune parameters (threads, rebuild frequency, α constant) via command-line flags  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs (McfOptions).  
   Verification: Not implemented. Options exist but not tuned for IPM.  
 
-- [ ] Run and record baseline timings on medium instances  
+- [x] Run and record baseline timings on medium instances  
   Touched Codebase Parts: Documentation or benches output (e.g., README.md).  
   Verification: Not implemented.  
 

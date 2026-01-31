@@ -74,6 +74,7 @@ def min_cost_flow(
     tolerance: float | None = None,
     seed: int | None = None,
     threads: int | None = None,
+    alpha: float | None = None,
     return_stats: bool = False,
 ) -> FlowDict | tuple[FlowDict, dict | None]:
     """Return a min-cost flow dict in NetworkX format.
@@ -86,6 +87,7 @@ def min_cost_flow(
         tolerance: Convergence tolerance.
         seed: Random seed for IPM oracles.
         threads: Number of threads for solver execution.
+        alpha: Optional override for the IPM barrier scaling constant.
         return_stats: When True, return (flow_dict, ipm_stats).
     """
     core = _load_core()
@@ -105,6 +107,7 @@ def min_cost_flow(
             tolerance=tolerance,
             seed=seed,
             threads=threads,
+            alpha=alpha,
         )
     else:
         flow = core.min_cost_flow_edges(

@@ -67,6 +67,7 @@ fn build_options(
     tolerance: Option<f64>,
     seed: Option<u64>,
     threads: Option<usize>,
+    alpha: Option<f64>,
 ) -> PyResult<McfOptions> {
     let mut opts = McfOptions::default();
     if let Some(value) = max_iters {
@@ -80,6 +81,14 @@ fn build_options(
     }
     if let Some(value) = threads {
         opts.threads = value;
+    }
+    if let Some(value) = alpha {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "alpha must be positive",
+            ));
+        }
+        opts.alpha = Some(value);
     }
     if let Some(value) = rebuild_every {
         opts.strategy = Strategy::PeriodicRebuild {
@@ -158,7 +167,8 @@ fn min_cost_flow_edges(
     max_iters = None,
     tolerance = None,
     seed = None,
-    threads = None
+    threads = None,
+    alpha = None
 ))]
 fn min_cost_flow_edges_with_options(
     py: Python<'_>,
@@ -175,9 +185,18 @@ fn min_cost_flow_edges_with_options(
     tolerance: Option<f64>,
     seed: Option<u64>,
     threads: Option<usize>,
+    alpha: Option<f64>,
 ) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
-    let opts = build_options(strategy, rebuild_every, max_iters, tolerance, seed, threads)?;
+    let opts = build_options(
+        strategy,
+        rebuild_every,
+        max_iters,
+        tolerance,
+        seed,
+        threads,
+        alpha,
+    )?;
 
     let solution = min_cost_flow_exact(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
@@ -212,7 +231,8 @@ fn min_cost_flow_edges_with_options(
     max_iters = None,
     tolerance = None,
     seed = None,
-    threads = None
+    threads = None,
+    alpha = None
 ))]
 fn run_ipm_edges(
     py: Python<'_>,
@@ -229,9 +249,18 @@ fn run_ipm_edges(
     tolerance: Option<f64>,
     seed: Option<u64>,
     threads: Option<usize>,
+    alpha: Option<f64>,
 ) -> PyResult<(Py<PyArray1<f64>>, PyObject)> {
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
-    let opts = build_options(strategy, rebuild_every, max_iters, tolerance, seed, threads)?;
+    let opts = build_options(
+        strategy,
+        rebuild_every,
+        max_iters,
+        tolerance,
+        seed,
+        threads,
+        alpha,
+    )?;
 
     let ipm_result = ipm::run_ipm(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;

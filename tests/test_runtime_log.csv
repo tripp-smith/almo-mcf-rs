@@ -1,0 +1,7 @@
+date,command,duration_seconds,notes
+2026-01-31T18:03:00+00:00,uv pip install -e . --system,42.21,built editable package for tests
+2026-01-31T18:03:00+00:00,uv pip install -r tests/requirements.txt --system,0.48,installed hypothesis dependency
+2026-01-31T18:03:00+00:00,pytest,2.81,27 passed 2 skipped
+2026-01-31T18:03:00+00:00,pytest -q tests/,1.69,27 passed 2 skipped
+2026-01-31T18:03:00+00:00,pytest tests/,1.71,27 passed 2 skipped
+2026-01-31T18:03:00+00:00,cargo fmt --check,0.77,format check
