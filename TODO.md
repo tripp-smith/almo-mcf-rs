@@ -174,27 +174,27 @@
 ### Phase 4: Integration and API Completion
 
 **Integrate IPM into Rust core solver (rust/crates/almo-mcf-core/src/lib.rs)**  
-- [ ] Refactor min_cost_flow_exact to accept McfOptions.strategy  
+- [x] Refactor min_cost_flow_exact to accept McfOptions.strategy  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Not implemented. lib.rs uses classic algorithm; options defined but not used for IPM.  
 
-- [ ] Implement IPM branch (call ipm solver when strategy = FullDynamic or PeriodicRebuild)  
+- [x] Implement IPM branch (call ipm solver when strategy = FullDynamic or PeriodicRebuild)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Not implemented.  
 
-- [ ] Wire min-ratio oracle into IPM direction finding  
+- [x] Wire min-ratio oracle into IPM direction finding  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Not implemented.  
 
-- [ ] Add fallback to classic successive shortest paths for debugging/small instances  
+- [x] Add fallback to classic successive shortest paths for debugging/small instances  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Partially implemented (classic is default), but not as fallback.  
 
-- [ ] Handle infeasible/unbounded errors consistently  
+- [x] Handle infeasible/unbounded errors consistently  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Partially implemented in classic; needs IPM extension.  
 
-- [ ] Update McfSolution to include IPM stats (iterations, final gap)  
+- [x] Update McfSolution to include IPM stats (iterations, final gap)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
   Verification: Not implemented.  
 
