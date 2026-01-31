@@ -53,79 +53,79 @@
 ### Phase 2: Core Algorithm Components
 
 **Implement potential-reduction IPM core (rust/crates/almo-mcf-core/src/ipm)**  
-- [ ] Define Potential struct with log barrier and cost-gap terms (α = 1/(1000 log(mU)))  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or potential.rs.  
-  Verification: Not implemented. ipm dir has mod.rs but insufficient content; scaffolded per README.  
+- [x] Define Potential struct with log barrier and cost-gap terms (α = 1/(1000 log(mU)))  
+  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or rust/crates/almo-mcf-core/src/ipm/potential.rs.  
+  Verification: Implemented.
 
-- [ ] Implement initial strictly feasible flow finder (use classic successive shortest paths as bootstrap)  
+- [x] Implement initial strictly feasible flow finder (use classic successive shortest paths as bootstrap)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or init.rs.  
-  Verification: Not implemented. Classic finder in lib.rs, but not integrated for IPM.  
+  Verification: Implemented.
 
-- [ ] Write function to compute current gradient vector g(f) and edge lengths ℓ_e(f)  
+- [x] Write function to compute current gradient vector g(f) and edge lengths ℓ_e(f)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or gradient.rs.  
-  Verification: Not implemented. No such functions in scaffold.  
+  Verification: Implemented.
 
-- [ ] Implement main IPM iteration loop skeleton (while gap > tol { find direction; line search; update })  
+- [x] Implement main IPM iteration loop skeleton (while gap > tol { find direction; line search; update })  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs.  
-  Verification: Not implemented. Core loop absent.  
+  Verification: Implemented.
 
-- [ ] Add line-search function (Armijo or simple fraction scaling to stay feasible)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or search.rs.  
-  Verification: Not implemented.  
+- [x] Add line-search function (Armijo or simple fraction scaling to stay feasible)  
+  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or rust/crates/almo-mcf-core/src/ipm/search.rs.  
+  Verification: Implemented.
 
-- [ ] Implement termination check (duality gap proxy < ε)  
+- [x] Implement termination check (duality gap proxy < ε)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Write basic integration test on tiny MCF instance (e.g., 3-node example)  
+- [x] Write basic integration test on tiny MCF instance (e.g., 3-node example)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/tests/ipm.rs or root/tests/test_correctness_small.py (expand).  
-  Verification: Not implemented. Small tests exist but not for IPM.  
+  Verification: Implemented.
 
 **Implement undirected min-ratio cycle subproblem (rust/crates/almo-mcf-core/src/min_ratio)**  
-- [ ] Define MinRatioOracle trait or struct that takes g, ℓ and returns approx min-ratio circulation  
+- [x] Define MinRatioOracle trait or struct that takes g, ℓ and returns approx min-ratio circulation  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs or oracle.rs.  
-  Verification: Not implemented. Dir has dynamic.rs and mod.rs, but partial (dynamic oracle stub); no full trait.  
+  Verification: Implemented.
 
-- [ ] Implement static version: sample low-stretch tree → enumerate fundamental cycles  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/static.rs.  
-  Verification: Not implemented. No static version.  
+- [x] Implement static version: sample low-stretch tree → enumerate fundamental cycles  
+  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/static_oracle.rs.  
+  Verification: Implemented.
 
-- [ ] Add cycle evaluation: compute reduced cost g^T Δ and normalized length ||L Δ||_1  
+- [x] Add cycle evaluation: compute reduced cost g^T Δ and normalized length ||L Δ||_1  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Implement approximate solver (target m^{o(1)} accuracy, e.g., via top-k cycles)  
+- [x] Implement approximate solver (target m^{o(1)} accuracy, e.g., via top-k cycles)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Add warm-start support (cache previous tree or spanner across IPM steps)  
+- [x] Add warm-start support (cache previous tree or spanner across IPM steps)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/dynamic.rs.  
-  Verification: Not implemented. dynamic.rs exists but stub.  
+  Verification: Implemented.
 
-- [ ] Write test: verify ratio on hand-crafted negative-ratio cycle  
+- [x] Write test: verify ratio on hand-crafted negative-ratio cycle  
   Touched Codebase Parts: rust/crates/almo-mcf-core/tests/min_ratio.rs.  
-  Verification: Not implemented. No such test.  
+  Verification: Implemented.
 
 **Implement rounding to exact optimum (rust/crates/almo-mcf-core/src/rounding)**  
-- [ ] Implement residual graph extractor from fractional flow  
+- [x] Implement residual graph extractor from fractional flow  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs or residual.rs.  
-  Verification: Not implemented. Dir exists but insufficient; partial residual in lib.rs.  
+  Verification: Implemented.
 
-- [ ] Add cycle-canceling step on residual graph to reach integral flow (small number of augmentations)  
+- [x] Add cycle-canceling step on residual graph to reach integral flow (small number of augmentations)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Ensure cost monotonicity during rounding (only augment along negative reduced cost cycles)  
+- [x] Ensure cost monotonicity during rounding (only augment along negative reduced cost cycles)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Add final integrality check and cost verification  
+- [x] Add final integrality check and cost verification  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
-- [ ] Write test: round a known fractional optimum to integral on small instance  
+- [x] Write test: round a known fractional optimum to integral on small instance  
   Touched Codebase Parts: rust/crates/almo-mcf-core/tests/rounding.rs.  
-  Verification: Not implemented.  
+  Verification: Implemented.
 
 ### Phase 3: Dynamic Data Structures
 
