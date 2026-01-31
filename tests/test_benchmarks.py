@@ -42,9 +42,32 @@ def build_benchmark_graph(node_count: int, edge_count: int) -> nx.DiGraph:
     os.getenv("RUN_BENCHMARKS") != "1", reason="benchmarks disabled by default"
 )
 def test_min_cost_flow_benchmark(benchmark) -> None:
-    graph = build_benchmark_graph(6, 10)
+    graph = build_benchmark_graph(12, 60)
 
-    def run() -> None:
-        min_cost_flow(graph)
+    def run() -> dict:
+        return min_cost_flow(
+            graph,
+            strategy="periodic_rebuild",
+            rebuild_every=2,
+            max_iters=50,
+            tolerance=1e-6,
+            seed=3,
+            threads=2,
+            alpha=0.0005,
+        )
+
+    flow = benchmark.pedantic(run, rounds=1, iterations=1)
+    nx_flow = nx.min_cost_flow(graph)
+    assert nx.cost_of_flow(graph, nx_flow) == nx.cost_of_flow(graph, flow)
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_BENCHMARKS") != "1", reason="benchmarks disabled by default"
+)
+def test_networkx_benchmark(benchmark) -> None:
+    graph = build_benchmark_graph(12, 60)
+
+    def run() -> dict:
+        return nx.min_cost_flow(graph)
 
     benchmark.pedantic(run, rounds=1, iterations=1)

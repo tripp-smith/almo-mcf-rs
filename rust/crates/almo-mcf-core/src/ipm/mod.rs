@@ -63,7 +63,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
     let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
     let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
     let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
-    let potential = Potential::new(&upper);
+    let potential = Potential::new(&upper, opts.alpha, opts.threads);
 
     let mut fallback_oracle = None;
     let mut dynamic_oracle = None;

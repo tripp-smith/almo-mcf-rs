@@ -50,6 +50,7 @@ pub struct McfOptions {
     pub max_iters: usize,
     pub strategy: Strategy,
     pub threads: usize,
+    pub alpha: Option<f64>,
 }
 
 impl Default for McfOptions {
@@ -61,6 +62,7 @@ impl Default for McfOptions {
             max_iters: 10_000,
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
             threads: 1,
+            alpha: None,
         }
     }
 }
