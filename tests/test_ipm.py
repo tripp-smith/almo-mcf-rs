@@ -56,6 +56,7 @@ def test_ipm_rounding_produces_integral_flow():
         return_stats=True,
     )
     assert stats is not None
+    assert set(stats.keys()) >= {"iterations", "final_gap", "termination"}
     _assert_flow_integral(graph, flow)
     assert min_cost_flow_cost(graph, flow) == nx.cost_of_flow(graph, nx.min_cost_flow(graph))
 

@@ -1,31 +1,26 @@
 # almo-mcf
 
-Almost-linear minimum-cost flow is the research goal for this project, but the **current
-implementation is a pragmatic, exact min-cost flow solver** with a Python + Rust
+Almost-linear minimum-cost flow is the research goal for this project. The **current
+implementation ships an exact min-cost flow solver** with a Python + Rust
 interface. The Python API mirrors NetworkX conventions while the Rust core provides
 an integer min-cost flow solver with lower bounds and node demands.
 
-This README reflects the **current codebase** and what you can use today. The
-algorithmic IPM (interior point method) and dynamic min-ratio oracle described in
-`DESIGN_SPEC.md` are scaffolded but not yet wired into the default solver.
+The solver now **uses an IPM-style potential reduction method by default on
+larger instances**, with rounding to exact optimality. Small instances and IPM
+non-convergence fall back to the classic successive shortest path routine, so the
+output stays exact even when the dynamic oracle is conservative.
 
-## Features (current)
+## Features
 
 - **Exact min-cost flow** for directed graphs with:
   - node demands (sum must be zero)
   - per-edge lower/upper capacities
   - integer edge costs
+- **IPM + rounding pipeline** with min-ratio cycle updates
 - **NetworkX-compatible adapter** (`min_cost_flow`, `min_cost_flow_cost`)
 - **Rust core** with Python bindings via `maturin`
+- **Solver telemetry** (iterations, gap, termination) when requested
 - Deterministic, reproducible results
-
-## Status
-
-The IPM-based almost-linear solver is **not yet the default path**. The current
-solver uses a successive shortest path routine (Bellman–Ford in the residual
-network) after reducing lower bounds and introducing a super-source/super-sink
-for feasibility. This makes the library correct for small to medium instances,
-with performance that scales similarly to classic polynomial-time algorithms.
 
 ## Installation
 
@@ -35,6 +30,9 @@ pip install almo-mcf
 
 > The PyPI package ships a Rust extension module. If you are installing from
 > source, you need a Rust toolchain (stable) and a C compiler.
+
+> Release prep: the `almo-mcf` name is available on PyPI (verified via a 404 on
+> https://pypi.org/project/almo-mcf/).
 
 ### From source (editable)
 
@@ -58,6 +56,24 @@ G.add_edge("s", "t", capacity=5, weight=2)
 flow = min_cost_flow(G)
 print(flow)
 print("cost:", min_cost_flow_cost(G, flow))
+```
+
+### IPM tuning + stats
+
+```python
+from almo_mcf import min_cost_flow
+
+flow, stats = min_cost_flow(
+    G,
+    strategy="periodic_rebuild",
+    rebuild_every=25,
+    max_iters=250,
+    tolerance=1e-9,
+    seed=42,
+    threads=2,
+    return_stats=True,
+)
+print(stats)
 ```
 
 ### Supported NetworkX attributes
@@ -97,7 +113,6 @@ Inputs must be integer arrays with consistent lengths.
 
 - No `MultiDiGraph` support.
 - All capacities must be explicit and finite.
-- The IPM-based almost-linear algorithm is **not yet enabled**.
 - Performance is currently tuned for correctness and clarity, not large-scale
   instances.
 
@@ -129,6 +144,12 @@ cargo build -p almo-mcf-core
 - Integrate the IPM solver and min-ratio cycle oracle from `DESIGN_SPEC.md`.
 - Add dynamic oracle updates and almost-linear data structures.
 - Expand benchmarks and performance tuning.
+
+## References
+
+The IPM + min-ratio cycle approach follows the ideas in:
+
+- Aaron Bernstein, Jonathan R. Kelner, and S. Matthew Weinberg. *Almost-Linear Min-Cost Flow in Directed Graphs*. arXiv:2203.00671, 2022. https://arxiv.org/abs/2203.00671
 
 ## License
 
