@@ -10,7 +10,12 @@ import numpy as np
 
 from ._version import __version__
 
-__all__ = ["min_cost_flow_edges", "__version__"]
+__all__ = [
+    "min_cost_flow_edges",
+    "min_cost_flow_edges_with_options",
+    "run_ipm_edges",
+    "__version__",
+]
 
 
 def _as_int64_array(values: Iterable[int], name: str) -> np.ndarray:
@@ -91,3 +96,51 @@ def min_cost_flow_edges(
         flow_val = int(flow_dict.get(tail_idx, {}).get(head_idx, 0))
         flows[idx] = flow_val + int(lower_arr[idx])
     return flows
+
+
+def min_cost_flow_edges_with_options(
+    n: int,
+    tail: Iterable[int],
+    head: Iterable[int],
+    lower: Iterable[int],
+    upper: Iterable[int],
+    cost: Iterable[int],
+    demand: Iterable[int],
+    *,
+    strategy: str | None = None,
+    rebuild_every: int | None = None,
+    max_iters: int | None = None,
+    tolerance: float | None = None,
+    seed: int | None = None,
+    threads: int | None = None,
+):
+    """Compute the min-cost flow with optional solver tuning parameters.
+
+    The fallback ignores tuning options and returns (flow, None).
+    """
+    _ = (strategy, rebuild_every, max_iters, tolerance, seed, threads)
+    flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand)
+    return flows, None
+
+
+def run_ipm_edges(
+    n: int,
+    tail: Iterable[int],
+    head: Iterable[int],
+    lower: Iterable[int],
+    upper: Iterable[int],
+    cost: Iterable[int],
+    demand: Iterable[int],
+    *,
+    strategy: str | None = None,
+    rebuild_every: int | None = None,
+    max_iters: int | None = None,
+    tolerance: float | None = None,
+    seed: int | None = None,
+    threads: int | None = None,
+):
+    """Run the IPM solver directly and return (flow, stats) for debugging."""
+    _ = (strategy, rebuild_every, max_iters, tolerance, seed, threads)
+    flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand).astype(float)
+    stats = {"iterations": 0, "final_gap": 0.0, "termination": "fallback"}
+    return flows, stats

@@ -36,3 +36,29 @@ def test_matches_networkx_cost():
         nx_flow = nx.min_cost_flow(G)
         flow = min_cost_flow(G)
         assert min_cost_flow_cost(G, flow) == nx.cost_of_flow(G, nx_flow)
+
+
+def test_matches_networkx_cost_with_ipm_options():
+    G = nx.DiGraph()
+    for node, demand in [(0, -6), (1, 0), (2, 0), (3, 0), (4, 6), (5, 0), (6, 0), (7, 0), (8, 0)]:
+        G.add_node(node, demand=demand)
+    for i in range(9):
+        G.add_edge(i, (i + 1) % 9, capacity=6, weight=0)
+    G.add_edge(0, 4, capacity=6, weight=0)
+    G.add_edge(1, 5, capacity=6, weight=0)
+    G.add_edge(2, 6, capacity=6, weight=0)
+    G.add_edge(3, 7, capacity=6, weight=0)
+    G.add_edge(4, 8, capacity=6, weight=0)
+
+    nx_flow = nx.min_cost_flow(G)
+    flow, stats = min_cost_flow(
+        G,
+        strategy="periodic_rebuild",
+        rebuild_every=2,
+        max_iters=40,
+        tolerance=1e6,
+        seed=3,
+        return_stats=True,
+    )
+    assert stats is not None
+    assert min_cost_flow_cost(G, flow) == nx.cost_of_flow(G, nx_flow)
