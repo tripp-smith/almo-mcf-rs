@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+use crate::trees::LowStretchTree;
+
+pub mod oracle;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingStep {
     pub edge: usize,
@@ -40,6 +44,144 @@ pub struct DynamicSpanner {
     edges: Vec<SpannerEdge>,
     adjacency: Vec<Vec<usize>>,
     embeddings: HashMap<usize, EmbeddingPath>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpannerLevel {
+    pub spanner: DynamicSpanner,
+    pub tree: LowStretchTree,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpannerHierarchy {
+    pub levels: Vec<SpannerLevel>,
+    pub rebuild_every: usize,
+    pub instability_budget: usize,
+    pub step_count: usize,
+    pub instability: usize,
+}
+
+impl SpannerHierarchy {
+    pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
+        let SpannerBuildParams {
+            node_count,
+            tails,
+            heads,
+            lengths,
+            seed,
+            levels,
+            rebuild_every,
+            instability_budget,
+        } = params;
+        if node_count == 0 || tails.len() != heads.len() || tails.len() != lengths.len() {
+            return None;
+        }
+        let mut hierarchy = Vec::new();
+        let level_count = levels.max(1);
+        for level in 0..level_count {
+            let tree = LowStretchTree::build_low_stretch(
+                node_count,
+                tails,
+                heads,
+                lengths,
+                seed + level as u64,
+            )
+            .ok()?;
+            let mut spanner = DynamicSpanner::new(node_count);
+            for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+                spanner.insert_edge_with_values(
+                    tail as usize,
+                    head as usize,
+                    lengths[edge_id],
+                    0.0,
+                );
+            }
+            hierarchy.push(SpannerLevel { spanner, tree });
+        }
+        Some(Self {
+            levels: hierarchy,
+            rebuild_every: rebuild_every.max(1),
+            instability_budget,
+            step_count: 0,
+            instability: 0,
+        })
+    }
+
+    pub fn apply_updates(
+        &mut self,
+        updates: &[(usize, f64, f64)],
+        gradient_threshold: f64,
+        length_factor: f64,
+    ) {
+        for level in &mut self.levels {
+            let instability =
+                level
+                    .spanner
+                    .batch_update_edges(updates, gradient_threshold, length_factor);
+            self.instability += instability;
+        }
+    }
+
+    pub fn tick(&mut self, seed: u64, rebuild_levels: usize) -> bool {
+        self.step_count += 1;
+        if self.should_rebuild() {
+            let rebuilt = self.rebuild(seed, rebuild_levels);
+            return rebuilt;
+        }
+        false
+    }
+
+    pub fn should_rebuild(&self) -> bool {
+        if self.instability_budget > 0 && self.instability >= self.instability_budget {
+            return true;
+        }
+        self.step_count.is_multiple_of(self.rebuild_every)
+    }
+
+    pub fn rebuild(&mut self, seed: u64, rebuild_levels: usize) -> bool {
+        let Some(level) = self.levels.first() else {
+            return false;
+        };
+        let node_count = level.spanner.node_count;
+        let mut tails = Vec::new();
+        let mut heads = Vec::new();
+        let mut lengths = Vec::new();
+        for edge_id in 0..level.spanner.edges.len() {
+            if let Some((u, v)) = level.spanner.edge_endpoints(edge_id) {
+                tails.push(u as u32);
+                heads.push(v as u32);
+                lengths.push(level.spanner.edges[edge_id].length);
+            }
+        }
+        if let Some(new_hierarchy) = SpannerHierarchy::build_recursive(SpannerBuildParams {
+            node_count,
+            tails: &tails,
+            heads: &heads,
+            lengths: &lengths,
+            seed,
+            levels: rebuild_levels,
+            rebuild_every: self.rebuild_every,
+            instability_budget: self.instability_budget,
+        }) {
+            self.levels = new_hierarchy.levels;
+            self.instability = 0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpannerBuildParams<'a> {
+    pub node_count: usize,
+    pub tails: &'a [u32],
+    pub heads: &'a [u32],
+    pub lengths: &'a [f64],
+    pub seed: u64,
+    pub levels: usize,
+    pub rebuild_every: usize,
+    pub instability_budget: usize,
 }
 
 impl DynamicSpanner {
@@ -554,5 +696,27 @@ mod tests {
 
         spanner.delete_edge(edge_id);
         assert_eq!(spanner.apply_edge_update(edge_id, 2.0, 0.0, 0.2, 1.2), None);
+    }
+
+    #[test]
+    fn hierarchy_rebuilds_on_instability() {
+        let tails = vec![0, 1, 2];
+        let heads = vec![1, 2, 0];
+        let lengths = vec![1.0, 1.0, 1.0];
+        let mut hierarchy = SpannerHierarchy::build_recursive(SpannerBuildParams {
+            node_count: 3,
+            tails: &tails,
+            heads: &heads,
+            lengths: &lengths,
+            seed: 3,
+            levels: 2,
+            rebuild_every: 5,
+            instability_budget: 1,
+        })
+        .unwrap();
+        let updates = vec![(0, 2.0, 0.8), (1, 2.5, 0.9)];
+        hierarchy.apply_updates(&updates, 0.1, 1.1);
+        assert!(hierarchy.should_rebuild());
+        assert!(hierarchy.tick(4, 2));
     }
 }

@@ -1,3 +1,5 @@
+pub mod dynamic;
+
 #[derive(Debug, Clone)]
 pub struct LowStretchTree {
     pub parent: Vec<usize>,
@@ -37,6 +39,11 @@ impl XorShift64 {
         x ^= x << 17;
         self.state = x;
         x
+    }
+
+    fn next_f64(&mut self) -> f64 {
+        let bits = self.next_u64() >> 11;
+        (bits as f64) * (1.0 / ((1u64 << 53) as f64))
     }
 
     fn shuffle<T>(&mut self, values: &mut [T]) {
@@ -134,6 +141,105 @@ impl LowStretchTree {
         })
     }
 
+    pub fn build_low_stretch(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        seed: u64,
+    ) -> Result<Self, TreeError> {
+        if node_count == 0 {
+            return Err(TreeError::EmptyGraph);
+        }
+        if tails.len() != heads.len() || tails.len() != lengths.len() {
+            return Err(TreeError::MissingEdgeLengths);
+        }
+        let mut rng = XorShift64::new(seed);
+        let mut edge_ids: Vec<usize> = (0..tails.len()).collect();
+        edge_ids.sort_by(|&a, &b| {
+            let jitter_a = lengths[a] * (1.0 + 1e-6 * rng.next_f64());
+            let jitter_b = lengths[b] * (1.0 + 1e-6 * rng.next_f64());
+            jitter_a
+                .partial_cmp(&jitter_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut uf = UnionFind::new(node_count);
+        let mut tree_edges = vec![false; tails.len()];
+        for edge_id in edge_ids {
+            let u = tails[edge_id] as usize;
+            let v = heads[edge_id] as usize;
+            if uf.union(u, v) {
+                tree_edges[edge_id] = true;
+            }
+        }
+
+        let mut adjacency: Vec<Vec<(usize, usize)>> = vec![Vec::new(); node_count];
+        for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+            if !tree_edges[edge_id] {
+                continue;
+            }
+            let u = tail as usize;
+            let v = head as usize;
+            adjacency[u].push((v, edge_id));
+            adjacency[v].push((u, edge_id));
+        }
+
+        let mut parent = vec![usize::MAX; node_count];
+        let mut parent_edge = vec![usize::MAX; node_count];
+        let mut depth = vec![0; node_count];
+        let mut prefix_length = vec![0.0; node_count];
+        let mut root = vec![usize::MAX; node_count];
+
+        for start in 0..node_count {
+            if parent[start] != usize::MAX {
+                continue;
+            }
+            parent[start] = start;
+            parent_edge[start] = usize::MAX;
+            root[start] = start;
+            depth[start] = 0;
+            prefix_length[start] = 0.0;
+            let mut stack = vec![start];
+            while let Some(node) = stack.pop() {
+                for &(neighbor, edge_id) in &adjacency[node] {
+                    if parent[neighbor] != usize::MAX {
+                        continue;
+                    }
+                    parent[neighbor] = node;
+                    parent_edge[neighbor] = edge_id;
+                    root[neighbor] = start;
+                    depth[neighbor] = depth[node] + 1;
+                    prefix_length[neighbor] = prefix_length[node] + lengths[edge_id];
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        let mut max_pow = 1;
+        while (1usize << max_pow) <= node_count {
+            max_pow += 1;
+        }
+        let mut up = vec![vec![0; node_count]; max_pow];
+        up[0][..node_count].copy_from_slice(&parent[..node_count]);
+        for k in 1..max_pow {
+            for node in 0..node_count {
+                let mid = up[k - 1][node];
+                up[k][node] = up[k - 1][mid];
+            }
+        }
+
+        Ok(Self {
+            parent,
+            parent_edge,
+            depth,
+            prefix_length,
+            root,
+            tree_edges,
+            up,
+        })
+    }
+
     pub fn lca(&self, mut u: usize, mut v: usize) -> Option<usize> {
         if self.root[u] != self.root[v] {
             return None;
@@ -200,6 +306,25 @@ impl LowStretchTree {
         }
         Some(edges)
     }
+
+    pub fn fundamental_cycle(
+        &self,
+        edge_id: usize,
+        tails: &[u32],
+        heads: &[u32],
+    ) -> Option<Vec<(usize, i8)>> {
+        if edge_id >= tails.len() || edge_id >= heads.len() {
+            return None;
+        }
+        if self.tree_edges.get(edge_id).copied().unwrap_or(false) {
+            return None;
+        }
+        let tail = tails[edge_id] as usize;
+        let head = heads[edge_id] as usize;
+        let mut cycle = self.path_edges(head, tail, tails, heads)?;
+        cycle.push((edge_id, 1));
+        Some(cycle)
+    }
 }
 
 fn edge_direction(from: usize, to: usize, edge_id: usize, tails: &[u32], heads: &[u32]) -> i8 {
@@ -209,6 +334,45 @@ fn edge_direction(from: usize, to: usize, edge_id: usize, tails: &[u32], heads: 
         1
     } else {
         -1
+    }
+}
+
+#[derive(Debug, Clone)]
+struct UnionFind {
+    parent: Vec<usize>,
+    rank: Vec<usize>,
+}
+
+impl UnionFind {
+    fn new(n: usize) -> Self {
+        Self {
+            parent: (0..n).collect(),
+            rank: vec![0; n],
+        }
+    }
+
+    fn find(&mut self, x: usize) -> usize {
+        if self.parent[x] != x {
+            let root = self.find(self.parent[x]);
+            self.parent[x] = root;
+        }
+        self.parent[x]
+    }
+
+    fn union(&mut self, a: usize, b: usize) -> bool {
+        let mut ra = self.find(a);
+        let mut rb = self.find(b);
+        if ra == rb {
+            return false;
+        }
+        if self.rank[ra] < self.rank[rb] {
+            std::mem::swap(&mut ra, &mut rb);
+        }
+        self.parent[rb] = ra;
+        if self.rank[ra] == self.rank[rb] {
+            self.rank[ra] += 1;
+        }
+        true
     }
 }
 
@@ -263,5 +427,32 @@ mod tests {
         }
         let dist = tree.path_length(2, 4).unwrap();
         assert!((dist - length_sum).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fundamental_cycle_includes_off_tree_edge() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let lengths = vec![1.0, 1.0, 1.0, 0.5];
+        let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 4).unwrap();
+        let off_tree_edge = tree
+            .tree_edges
+            .iter()
+            .position(|&is_tree| !is_tree)
+            .expect("off-tree edge exists");
+        let cycle = tree
+            .fundamental_cycle(off_tree_edge, &tails, &heads)
+            .expect("cycle exists");
+        assert!(cycle.iter().any(|(edge_id, _)| *edge_id == off_tree_edge));
+    }
+
+    #[test]
+    fn low_stretch_build_uses_tree_edges() {
+        let tails = vec![0, 0, 1, 2];
+        let heads = vec![1, 2, 2, 3];
+        let lengths = vec![1.0, 3.0, 1.0, 1.0];
+        let tree = LowStretchTree::build_low_stretch(4, &tails, &heads, &lengths, 5).unwrap();
+        assert_eq!(tree.tree_edges.iter().filter(|&&b| b).count(), 3);
+        assert!(tree.path_length(0, 3).is_some());
     }
 }
