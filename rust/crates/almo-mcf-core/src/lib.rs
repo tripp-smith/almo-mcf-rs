@@ -419,9 +419,11 @@ mod tests {
         }
         let demand = vec![0_i64; node_count];
         let problem = McfProblem::new(tails, heads, lower, upper, cost, demand).unwrap();
-        let mut opts = McfOptions::default();
-        opts.strategy = Strategy::FullDynamic;
-        opts.max_iters = 50;
+        let opts = McfOptions {
+            strategy: Strategy::FullDynamic,
+            max_iters: 50,
+            ..McfOptions::default()
+        };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
         let stats = solution.ipm_stats.expect("expected IPM stats");
         assert!(stats.iterations > 0);
@@ -439,8 +441,10 @@ mod tests {
             vec![0, 0, 0],
         )
         .unwrap();
-        let mut opts = McfOptions::default();
-        opts.strategy = Strategy::FullDynamic;
+        let opts = McfOptions {
+            strategy: Strategy::FullDynamic,
+            ..McfOptions::default()
+        };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
         assert!(solution.ipm_stats.is_none());
     }
@@ -464,9 +468,11 @@ mod tests {
         }
         let demand = vec![0_i64; node_count];
         let problem = McfProblem::new(tails, heads, lower, upper, cost, demand).unwrap();
-        let mut opts = McfOptions::default();
-        opts.strategy = Strategy::PeriodicRebuild { rebuild_every: 2 };
-        opts.max_iters = 1;
+        let opts = McfOptions {
+            strategy: Strategy::PeriodicRebuild { rebuild_every: 2 },
+            max_iters: 1,
+            ..McfOptions::default()
+        };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
         assert!(solution.ipm_stats.is_none());
     }
