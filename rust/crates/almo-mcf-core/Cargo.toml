@@ -17,3 +17,7 @@ criterion = "0.5"
 [[bench]]
 name = "bench_ipm"
 harness = false
+
+[[bench]]
+name = "trees"
+harness = false

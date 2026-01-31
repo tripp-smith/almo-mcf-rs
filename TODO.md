@@ -130,44 +130,44 @@
 ### Phase 3: Dynamic Data Structures
 
 **Implement low-stretch spanning trees (rust/crates/almo-mcf-core/src/trees)**  
-- [ ] Implement probabilistic low-stretch tree construction (MST + random sampling or ABP style)  
+- [x] Implement probabilistic low-stretch tree construction (MST + random sampling or ABP style)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs or lsst.rs.  
   Verification: Not implemented. Dir has mod.rs but insufficient content.  
 
-- [ ] Add tree path query (LCA + distance in tree metric)  
+- [x] Add tree path query (LCA + distance in tree metric)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs.  
   Verification: Not implemented.  
 
-- [ ] Implement fundamental cycle extractor given tree and off-tree edge  
+- [x] Implement fundamental cycle extractor given tree and off-tree edge  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs.  
   Verification: Not implemented.  
 
-- [ ] Add basic dynamic update (edge insertion/deletion with rebuild fallback)  
+- [x] Add basic dynamic update (edge insertion/deletion with rebuild fallback)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/dynamic.rs.  
   Verification: Not implemented.  
 
-- [ ] Write benchmark on path query time vs graph size  
+- [x] Write benchmark on path query time vs graph size  
   Touched Codebase Parts: rust/crates/almo-mcf-core/benches/trees.rs (benches dir not found at root, likely add to crate benches).  
   Verification: Not implemented. No benches dir.  
 
 **Implement dynamic spanners and hierarchy (rust/crates/almo-mcf-core/src/spanner)**  
-- [ ] Implement recursive tree spanner construction (chain decomposition or hierarchy)  
+- [x] Implement recursive tree spanner construction (chain decomposition or hierarchy)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs or construct.rs.  
   Verification: Not implemented. Insufficient content.  
 
-- [ ] Add spanner maintenance across small flow changes (stability-aware rebuild)  
+- [x] Add spanner maintenance across small flow changes (stability-aware rebuild)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs.  
   Verification: Not implemented.  
 
-- [ ] Implement periodic rebuild trigger (every k IPM steps or stretch threshold)  
+- [x] Implement periodic rebuild trigger (every k IPM steps or stretch threshold)  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs.  
   Verification: Not implemented.  
 
-- [ ] Add flow-chasing oracle using spanner paths for cycle finding  
+- [x] Add flow-chasing oracle using spanner paths for cycle finding  
   Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/oracle.rs.  
   Verification: Not implemented.  
 
-- [ ] Write integration test with dummy lengths/gradients  
+- [x] Write integration test with dummy lengths/gradients  
   Touched Codebase Parts: rust/crates/almo-mcf-core/tests/spanner.rs.  
   Verification: Not implemented.  
 
