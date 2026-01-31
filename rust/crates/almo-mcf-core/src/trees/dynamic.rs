@@ -71,7 +71,7 @@ impl DynamicTree {
         if self.update_budget > 0 && self.update_count >= self.update_budget {
             return true;
         }
-        step % self.rebuild_every == 0
+        step.is_multiple_of(self.rebuild_every)
     }
 
     pub fn rebuild(&mut self, seed: u64) -> Result<(), TreeError> {

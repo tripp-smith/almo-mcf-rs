@@ -62,16 +62,17 @@ pub struct SpannerHierarchy {
 }
 
 impl SpannerHierarchy {
-    pub fn build_recursive(
-        node_count: usize,
-        tails: &[u32],
-        heads: &[u32],
-        lengths: &[f64],
-        seed: u64,
-        levels: usize,
-        rebuild_every: usize,
-        instability_budget: usize,
-    ) -> Option<Self> {
+    pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
+        let SpannerBuildParams {
+            node_count,
+            tails,
+            heads,
+            lengths,
+            seed,
+            levels,
+            rebuild_every,
+            instability_budget,
+        } = params;
         if node_count == 0 || tails.len() != heads.len() || tails.len() != lengths.len() {
             return None;
         }
@@ -134,11 +135,11 @@ impl SpannerHierarchy {
         if self.instability_budget > 0 && self.instability >= self.instability_budget {
             return true;
         }
-        self.step_count % self.rebuild_every == 0
+        self.step_count.is_multiple_of(self.rebuild_every)
     }
 
     pub fn rebuild(&mut self, seed: u64, rebuild_levels: usize) -> bool {
-        let Some(level) = self.levels.get(0) else {
+        let Some(level) = self.levels.first() else {
             return false;
         };
         let node_count = level.spanner.node_count;
@@ -152,16 +153,16 @@ impl SpannerHierarchy {
                 lengths.push(level.spanner.edges[edge_id].length);
             }
         }
-        if let Some(new_hierarchy) = SpannerHierarchy::build_recursive(
+        if let Some(new_hierarchy) = SpannerHierarchy::build_recursive(SpannerBuildParams {
             node_count,
-            &tails,
-            &heads,
-            &lengths,
+            tails: &tails,
+            heads: &heads,
+            lengths: &lengths,
             seed,
-            rebuild_levels,
-            self.rebuild_every,
-            self.instability_budget,
-        ) {
+            levels: rebuild_levels,
+            rebuild_every: self.rebuild_every,
+            instability_budget: self.instability_budget,
+        }) {
             self.levels = new_hierarchy.levels;
             self.instability = 0;
             true
@@ -169,6 +170,18 @@ impl SpannerHierarchy {
             false
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpannerBuildParams<'a> {
+    pub node_count: usize,
+    pub tails: &'a [u32],
+    pub heads: &'a [u32],
+    pub lengths: &'a [f64],
+    pub seed: u64,
+    pub levels: usize,
+    pub rebuild_every: usize,
+    pub instability_budget: usize,
 }
 
 impl DynamicSpanner {
@@ -690,8 +703,17 @@ mod tests {
         let tails = vec![0, 1, 2];
         let heads = vec![1, 2, 0];
         let lengths = vec![1.0, 1.0, 1.0];
-        let mut hierarchy =
-            SpannerHierarchy::build_recursive(3, &tails, &heads, &lengths, 3, 2, 5, 1).unwrap();
+        let mut hierarchy = SpannerHierarchy::build_recursive(SpannerBuildParams {
+            node_count: 3,
+            tails: &tails,
+            heads: &heads,
+            lengths: &lengths,
+            seed: 3,
+            levels: 2,
+            rebuild_every: 5,
+            instability_budget: 1,
+        })
+        .unwrap();
         let updates = vec![(0, 2.0, 0.8), (1, 2.5, 0.9)];
         hierarchy.apply_updates(&updates, 0.1, 1.1);
         assert!(hierarchy.should_rebuild());

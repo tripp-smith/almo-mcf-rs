@@ -1,13 +1,22 @@
 use almo_mcf_core::spanner::oracle::FlowChasingOracle;
-use almo_mcf_core::spanner::SpannerHierarchy;
+use almo_mcf_core::spanner::{SpannerBuildParams, SpannerHierarchy};
 
 #[test]
 fn spanner_hierarchy_and_oracle_integrate() {
     let tails = vec![0, 1, 2, 0];
     let heads = vec![1, 2, 3, 3];
     let lengths = vec![1.0, 1.0, 1.0, 1.5];
-    let mut hierarchy =
-        SpannerHierarchy::build_recursive(4, &tails, &heads, &lengths, 11, 2, 3, 2).unwrap();
+    let mut hierarchy = SpannerHierarchy::build_recursive(SpannerBuildParams {
+        node_count: 4,
+        tails: &tails,
+        heads: &heads,
+        lengths: &lengths,
+        seed: 11,
+        levels: 2,
+        rebuild_every: 3,
+        instability_budget: 2,
+    })
+    .unwrap();
     let updates = vec![(0, 1.2, 0.4), (1, 0.9, -0.2)];
     hierarchy.apply_updates(&updates, 0.1, 1.05);
     assert!(hierarchy.should_rebuild());
