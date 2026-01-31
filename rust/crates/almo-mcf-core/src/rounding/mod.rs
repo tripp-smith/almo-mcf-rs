@@ -127,6 +127,7 @@ pub fn round_fractional_flow(
         return Ok(McfSolution {
             flow: residual.base_flow,
             cost,
+            ipm_stats: None,
         });
     }
 
@@ -181,7 +182,11 @@ pub fn round_fractional_flow(
         .map(|(&f, &c)| f as i128 * c as i128)
         .sum::<i128>();
 
-    Ok(McfSolution { flow, cost })
+    Ok(McfSolution {
+        flow,
+        cost,
+        ipm_stats: None,
+    })
 }
 
 #[cfg(test)]

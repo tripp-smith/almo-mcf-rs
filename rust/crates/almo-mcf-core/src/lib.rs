@@ -7,6 +7,8 @@ pub mod spanner;
 pub mod trees;
 
 use crate::graph::min_cost_flow::MinCostFlow;
+use crate::ipm::{IpmStats, IpmTermination};
+use crate::rounding::round_fractional_flow;
 
 #[derive(Debug, Clone)]
 pub struct McfProblem {
@@ -24,6 +26,14 @@ pub struct McfProblem {
 pub struct McfSolution {
     pub flow: Vec<i64>,
     pub cost: i128,
+    pub ipm_stats: Option<IpmSummary>,
+}
+
+#[derive(Debug, Clone)]
+pub struct IpmSummary {
+    pub iterations: usize,
+    pub final_gap: f64,
+    pub termination: IpmTermination,
 }
 
 #[derive(Debug, Clone)]
@@ -131,8 +141,53 @@ impl McfProblem {
 
 pub fn min_cost_flow_exact(
     problem: &McfProblem,
-    _opts: &McfOptions,
+    opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
+    if should_use_classic(problem, opts) {
+        return solve_classic(problem);
+    }
+
+    let ipm_result = match ipm::run_ipm(problem, opts) {
+        Ok(result) => result,
+        Err(err) => {
+            if matches!(err, McfError::InvalidInput(_)) {
+                return Err(err);
+            }
+            return solve_classic(problem).or(Err(err));
+        }
+    };
+    if ipm_result.termination != IpmTermination::Converged {
+        return solve_classic(problem);
+    }
+
+    let rounded = match round_fractional_flow(problem, &ipm_result.flow) {
+        Ok(solution) => solution,
+        Err(err) => {
+            if matches!(err, McfError::Infeasible) {
+                return solve_classic(problem).or(Err(err));
+            }
+            return Err(err);
+        }
+    };
+    let ipm_stats = Some(IpmSummary::from_ipm(
+        &ipm_result.stats,
+        ipm_result.termination,
+    ));
+    let mut solution = rounded;
+    solution.ipm_stats = ipm_stats;
+    Ok(solution)
+}
+
+fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
+    const SMALL_EDGE_LIMIT: usize = 12;
+    const SMALL_NODE_LIMIT: usize = 8;
+    if opts.max_iters == 0 {
+        return true;
+    }
+    problem.edge_count() <= SMALL_EDGE_LIMIT || problem.node_count <= SMALL_NODE_LIMIT
+}
+
+fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
     let n = problem.node_count;
     let m = problem.edge_count();
 
@@ -198,7 +253,21 @@ pub fn min_cost_flow_exact(
         .map(|(&f, &c)| f as i128 * c as i128)
         .sum::<i128>();
 
-    Ok(McfSolution { flow, cost })
+    Ok(McfSolution {
+        flow,
+        cost,
+        ipm_stats: None,
+    })
+}
+
+impl IpmSummary {
+    fn from_ipm(stats: &IpmStats, termination: IpmTermination) -> Self {
+        Self {
+            iterations: stats.iterations,
+            final_gap: stats.last_gap,
+            termination,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +298,7 @@ mod tests {
         );
         assert_eq!(solution.flow, vec![0, 3, 0]);
         assert_eq!(solution.cost, 3);
+        assert!(solution.ipm_stats.is_none());
     }
 
     #[test]
@@ -243,6 +313,7 @@ mod tests {
         );
         assert_eq!(solution.flow, vec![3, 3]);
         assert_eq!(solution.cost, 9);
+        assert!(solution.ipm_stats.is_none());
     }
 
     #[test]
@@ -257,6 +328,7 @@ mod tests {
         );
         assert_eq!(solution.flow, vec![1, 2]);
         assert_eq!(solution.cost, 7);
+        assert!(solution.ipm_stats.is_none());
     }
 
     #[test]
@@ -271,6 +343,7 @@ mod tests {
         );
         assert_eq!(solution.flow, vec![2, 2]);
         assert_eq!(solution.cost, -2);
+        assert!(solution.ipm_stats.is_none());
     }
 
     #[test]
@@ -285,6 +358,7 @@ mod tests {
         );
         assert_eq!(solution.flow, vec![1, 1, 1]);
         assert_eq!(solution.cost, 3);
+        assert!(solution.ipm_stats.is_none());
     }
 
     #[test]
@@ -324,5 +398,76 @@ mod tests {
         assert_eq!(problem.edge_count(), 2);
         assert_eq!(problem.edge_endpoints(1), Some((1, 2)));
         assert_eq!(problem.edge_endpoints(2), None);
+    }
+
+    #[test]
+    fn uses_ipm_for_larger_instances() {
+        let mut tails = Vec::new();
+        let mut heads = Vec::new();
+        let mut lower = Vec::new();
+        let mut upper = Vec::new();
+        let mut cost = Vec::new();
+        let node_count = 9;
+        for i in 0..13 {
+            let tail = i % node_count;
+            let head = (i + 1) % node_count;
+            tails.push(tail as u32);
+            heads.push(head as u32);
+            lower.push(0);
+            upper.push(2);
+            cost.push((i as i64 % 3) - 1);
+        }
+        let demand = vec![0_i64; node_count];
+        let problem = McfProblem::new(tails, heads, lower, upper, cost, demand).unwrap();
+        let mut opts = McfOptions::default();
+        opts.strategy = Strategy::FullDynamic;
+        opts.max_iters = 50;
+        let solution = min_cost_flow_exact(&problem, &opts).unwrap();
+        let stats = solution.ipm_stats.expect("expected IPM stats");
+        assert!(stats.iterations > 0);
+        assert!(stats.final_gap.is_finite());
+    }
+
+    #[test]
+    fn falls_back_to_classic_on_small_graphs() {
+        let problem = McfProblem::new(
+            vec![0, 1, 2],
+            vec![1, 2, 0],
+            vec![0, 0, 0],
+            vec![2, 2, 2],
+            vec![1, 1, 1],
+            vec![0, 0, 0],
+        )
+        .unwrap();
+        let mut opts = McfOptions::default();
+        opts.strategy = Strategy::FullDynamic;
+        let solution = min_cost_flow_exact(&problem, &opts).unwrap();
+        assert!(solution.ipm_stats.is_none());
+    }
+
+    #[test]
+    fn falls_back_to_classic_when_ipm_iteration_limit_hits() {
+        let mut tails = Vec::new();
+        let mut heads = Vec::new();
+        let mut lower = Vec::new();
+        let mut upper = Vec::new();
+        let mut cost = Vec::new();
+        let node_count = 9;
+        for i in 0..13 {
+            let tail = i % node_count;
+            let head = (i + 1) % node_count;
+            tails.push(tail as u32);
+            heads.push(head as u32);
+            lower.push(0);
+            upper.push(2);
+            cost.push(-1);
+        }
+        let demand = vec![0_i64; node_count];
+        let problem = McfProblem::new(tails, heads, lower, upper, cost, demand).unwrap();
+        let mut opts = McfOptions::default();
+        opts.strategy = Strategy::PeriodicRebuild { rebuild_every: 2 };
+        opts.max_iters = 1;
+        let solution = min_cost_flow_exact(&problem, &opts).unwrap();
+        assert!(solution.ipm_stats.is_none());
     }
 }
