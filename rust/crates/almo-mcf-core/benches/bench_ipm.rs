@@ -87,11 +87,11 @@ fn build_bipartite_problem(left: usize, right: usize, edges_per_left: usize) -> 
     let edge_count = tails.len();
     let lower = vec![0_i64; edge_count];
     let mut demands = vec![0_i64; node_count];
-    for l in 0..left {
-        demands[l] = -1;
+    for demand in demands.iter_mut().take(left) {
+        *demand = -1;
     }
-    for r in 0..right {
-        demands[left + r] = 1;
+    for demand in demands.iter_mut().skip(left) {
+        *demand = 1;
     }
 
     McfProblem::new(tails, heads, lower, upper, cost, demands).expect("valid bipartite problem")
