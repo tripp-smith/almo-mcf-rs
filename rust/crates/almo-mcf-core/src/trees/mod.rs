@@ -435,10 +435,15 @@ mod tests {
         let heads = vec![1, 2, 0, 2];
         let lengths = vec![1.0, 1.0, 1.0, 0.5];
         let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 4).unwrap();
+        let off_tree_edge = tree
+            .tree_edges
+            .iter()
+            .position(|&is_tree| !is_tree)
+            .expect("off-tree edge exists");
         let cycle = tree
-            .fundamental_cycle(3, &tails, &heads)
+            .fundamental_cycle(off_tree_edge, &tails, &heads)
             .expect("cycle exists");
-        assert!(cycle.iter().any(|(edge_id, _)| *edge_id == 3));
+        assert!(cycle.iter().any(|(edge_id, _)| *edge_id == off_tree_edge));
     }
 
     #[test]

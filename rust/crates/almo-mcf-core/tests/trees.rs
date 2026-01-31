@@ -20,6 +20,13 @@ fn fundamental_cycle_returns_off_tree_edge() {
     let heads = vec![1, 2, 0, 2];
     let lengths = vec![1.0, 1.0, 1.0, 0.7];
     let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 2).unwrap();
-    let cycle = tree.fundamental_cycle(3, &tails, &heads).unwrap();
-    assert!(cycle.iter().any(|(edge_id, _)| *edge_id == 3));
+    let off_tree_edge = tree
+        .tree_edges
+        .iter()
+        .position(|&is_tree| !is_tree)
+        .expect("off-tree edge exists");
+    let cycle = tree
+        .fundamental_cycle(off_tree_edge, &tails, &heads)
+        .unwrap();
+    assert!(cycle.iter().any(|(edge_id, _)| *edge_id == off_tree_edge));
 }

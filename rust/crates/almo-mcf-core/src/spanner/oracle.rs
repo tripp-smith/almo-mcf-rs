@@ -77,8 +77,8 @@ mod tests {
     #[test]
     fn oracle_builds_cycle_and_ratio() {
         let mut spanner = DynamicSpanner::new(3);
-        let e0 = spanner.insert_edge_with_values(0, 1, 1.0, 1.0);
-        let e1 = spanner.insert_edge_with_values(1, 2, 1.0, 2.0);
+        let _e0 = spanner.insert_edge_with_values(0, 1, 1.0, 1.0);
+        let _e1 = spanner.insert_edge_with_values(1, 2, 1.0, 2.0);
         let e2 = spanner.insert_edge_with_values(2, 0, 1.0, -1.0);
         let oracle = FlowChasingOracle::new();
         let cycle = oracle.find_cycle(&mut spanner, e2, 2, 0).unwrap();
