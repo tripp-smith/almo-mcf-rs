@@ -65,26 +65,63 @@ def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]
     return tails, heads, lower, upper, cost, demand, index, edges
 
 
-def min_cost_flow(G) -> FlowDict:
+def min_cost_flow(
+    G,
+    *,
+    strategy: str | None = None,
+    rebuild_every: int | None = None,
+    max_iters: int | None = None,
+    tolerance: float | None = None,
+    seed: int | None = None,
+    threads: int | None = None,
+    return_stats: bool = False,
+) -> FlowDict | tuple[FlowDict, dict | None]:
     """Return a min-cost flow dict in NetworkX format.
 
     Args:
         G: NetworkX DiGraph with demand and capacity attributes.
+        strategy: Optional solver strategy ("full_dynamic" or "periodic_rebuild").
+        rebuild_every: Rebuild cadence for periodic rebuild strategy.
+        max_iters: Maximum IPM iterations.
+        tolerance: Convergence tolerance.
+        seed: Random seed for IPM oracles.
+        threads: Number of threads for solver execution.
+        return_stats: When True, return (flow_dict, ipm_stats).
     """
     core = _load_core()
     tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
-    flow = core.min_cost_flow_edges(
-        len(index),
-        np.asarray(tails, dtype=np.int64),
-        np.asarray(heads, dtype=np.int64),
-        np.asarray(lower, dtype=np.int64),
-        np.asarray(upper, dtype=np.int64),
-        np.asarray(cost, dtype=np.int64),
-        np.asarray(demand, dtype=np.int64),
-    )
+    if hasattr(core, "min_cost_flow_edges_with_options"):
+        flow, stats = core.min_cost_flow_edges_with_options(
+            len(index),
+            np.asarray(tails, dtype=np.int64),
+            np.asarray(heads, dtype=np.int64),
+            np.asarray(lower, dtype=np.int64),
+            np.asarray(upper, dtype=np.int64),
+            np.asarray(cost, dtype=np.int64),
+            np.asarray(demand, dtype=np.int64),
+            strategy=strategy,
+            rebuild_every=rebuild_every,
+            max_iters=max_iters,
+            tolerance=tolerance,
+            seed=seed,
+            threads=threads,
+        )
+    else:
+        flow = core.min_cost_flow_edges(
+            len(index),
+            np.asarray(tails, dtype=np.int64),
+            np.asarray(heads, dtype=np.int64),
+            np.asarray(lower, dtype=np.int64),
+            np.asarray(upper, dtype=np.int64),
+            np.asarray(cost, dtype=np.int64),
+            np.asarray(demand, dtype=np.int64),
+        )
+        stats = None
     flow_dict: FlowDict = {node: {} for node in G.nodes()}
     for (u, v, _data), f in zip(edges, flow.tolist()):
         flow_dict[u][v] = int(f)
+    if return_stats:
+        return flow_dict, stats
     return flow_dict
 
 

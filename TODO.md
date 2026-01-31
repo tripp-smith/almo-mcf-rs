@@ -225,20 +225,19 @@
 
 ### Phase 5: Testing, Performance, and Polish
 
-**Expand tests for IPM components (tests/)**  
-- [ ] Add unit tests for each ipm/min_ratio/rounding/trees/spanner module  
+- [x] Add unit tests for each ipm/min_ratio/rounding/trees/spanner module  
   Touched Codebase Parts: tests/test_ipm.py, test_min_ratio.py, etc. (or Rust tests in crate).  
   Verification: Not implemented. Existing tests cover classic (e.g., test_against_networkx.py).  
 
-- [ ] Update test_regression_known_instances.py to run new IPM solver  
+- [x] Update test_regression_known_instances.py to run new IPM solver  
   Touched Codebase Parts: tests/test_regression_known_instances.py (not listed, but regression_seeds.py exists; assume similar).  
   Verification: Not implemented for IPM.  
 
-- [ ] Extend test_against_networkx.py with IPM mode and assert cost equality  
+- [x] Extend test_against_networkx.py with IPM mode and assert cost equality  
   Touched Codebase Parts: tests/test_against_networkx.py.  
   Verification: Not implemented for IPM.  
 
-- [ ] Add property-based tests (hypothesis) for feasibility preservation  
+- [x] Add property-based tests (hypothesis) for feasibility preservation  
   Touched Codebase Parts: tests/test_property_randomized.py (exists; extend).  
   Verification: Partially implemented; needs IPM focus.  
 

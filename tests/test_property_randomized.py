@@ -1,6 +1,7 @@
 import random
 
 import networkx as nx
+from hypothesis import given, settings, strategies as st
 
 from almo_mcf import min_cost_flow, min_cost_flow_cost
 
@@ -79,3 +80,14 @@ def test_regression_seeds_match_networkx():
         flow = min_cost_flow(graph)
         _assert_flow_feasible(graph, flow)
         assert min_cost_flow_cost(graph, flow) == nx.cost_of_flow(graph, nx_flow)
+
+
+@given(
+    seed=st.integers(min_value=0, max_value=50_000),
+    node_count=st.integers(min_value=5, max_value=25),
+)
+@settings(max_examples=20)
+def test_property_feasible_flow(seed: int, node_count: int) -> None:
+    graph = _build_random_graph(seed, node_count=node_count)
+    flow = min_cost_flow(graph)
+    _assert_flow_feasible(graph, flow)
