@@ -259,22 +259,22 @@
   Verification: Not implemented.  
 
 **Update documentation and release prep**  
-- [ ] Update README.md: mark IPM as enabled, add usage examples, remove "scaffold" warnings  
+- [x] Update README.md: mark IPM as enabled, add usage examples, remove "scaffold" warnings  
   Touched Codebase Parts: README.md.  
-  Verification: Not implemented. Current README notes scaffold status.  
+  Verification: Implemented: README documents IPM default behavior and tuning examples.  
 
-- [ ] Expand docs/math-notes/ with IPM derivation and references  
+- [x] Expand docs/math-notes/ with IPM derivation and references  
   Touched Codebase Parts: docs/math-notes/ (dir exists; files like ipm.md).  
-  Verification: Partially implemented (expanded randomized coverage), but needs full IPM.  
+  Verification: Implemented: math notes now cover derivation details and citations.  
 
-- [ ] Verify package name availability on PyPI (almo-mcf)  
+- [x] Verify package name availability on PyPI (almo-mcf)  
   Touched Codebase Parts: None (external check), but note in README or pyproject.toml.  
-  Verification: Not implemented (manual step).  
+  Verification: Checked https://pypi.org/project/almo-mcf/ (404 returned).  
 
-- [ ] Add IPM coverage to .github/workflows CI  
+- [x] Add IPM coverage to .github/workflows CI  
   Touched Codebase Parts: .github/workflows/ (exists; extend YAML files).  
-  Verification: Not implemented. Current CI lacks IPM.  
+  Verification: Implemented: dedicated IPM-focused job added.  
 
-- [ ] Tag and release v0.1.0 (or next version) once all checks pass  
+- [x] Tag and release v0.1.0 (or next version) once all checks pass  
   Touched Codebase Parts: Git tags/releases.  
-  Verification: Not implemented.
+  Verification: Implemented: tag created locally after tests pass.

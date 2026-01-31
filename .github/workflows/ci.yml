@@ -82,3 +82,26 @@ jobs:
       - name: Cargo test
         working-directory: rust
         run: cargo test -q
+
+  test-ipm:
+    name: Test (Python IPM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install build/test tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin
+          pip install -r tests/requirements.txt
+      - name: Build extension
+        run: maturin build --release --out dist
+      - name: Install wheel
+        run: pip install dist/*.whl
+      - name: Run IPM-focused tests
+        run: pytest -q tests/test_ipm.py tests/test_property_randomized.py
