@@ -1,9 +1,14 @@
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
-use crate::numerics::barrier::{barrier_gradient, barrier_lengths};
+use crate::numerics::duality_gap_proxy;
 use crate::{McfError, McfOptions, McfProblem, Strategy};
 use std::time::Instant;
+
+mod potential;
+mod search;
+
+pub use potential::Potential;
 
 #[derive(Debug, Default, Clone)]
 pub struct IpmState {
@@ -16,6 +21,7 @@ pub struct IpmStats {
     pub iterations: usize,
     pub last_step_size: f64,
     pub potentials: Vec<f64>,
+    pub last_gap: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +63,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
     let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
     let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
     let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
-    let min_delta = 1e-9;
-    let alpha = 0.01;
+    let potential = Potential::new(&upper);
 
     let mut fallback_oracle = None;
     let mut dynamic_oracle = None;
@@ -76,6 +81,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
         iterations: 0,
         last_step_size: 0.0,
         potentials: Vec::new(),
+        last_gap: f64::INFINITY,
     };
     let mut termination = IpmTermination::IterationLimit;
 
@@ -87,19 +93,16 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             }
         }
 
-        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_delta);
-        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_delta)
-            .into_iter()
-            .zip(cost.iter())
-            .map(|(g, c)| g + c)
-            .collect::<Vec<f64>>();
-        let potential = cost
-            .iter()
-            .zip(flow.iter())
-            .map(|(c, f)| c * f)
-            .sum::<f64>()
-            + lengths.iter().sum::<f64>();
-        stats.potentials.push(potential);
+        let (gradient, lengths) =
+            compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+        let current_potential = potential.value(&cost, &flow, &lower, &upper);
+        stats.potentials.push(current_potential);
+        stats.last_gap = duality_gap_proxy(&gradient, &flow);
+        if stats.last_gap < opts.tolerance {
+            termination = IpmTermination::Converged;
+            stats.iterations = iter;
+            break;
+        }
 
         let best = if let Some(oracle) = fallback_oracle.as_mut() {
             oracle
@@ -143,49 +146,18 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             delta[edge_id] += dir as f64;
         }
 
-        let mut max_step = f64::INFINITY;
-        for (idx, &d) in delta.iter().enumerate() {
-            if d > 0.0 {
-                let slack = upper[idx] - flow[idx];
-                max_step = max_step.min(slack / d);
-            } else if d < 0.0 {
-                let slack = flow[idx] - lower[idx];
-                max_step = max_step.min(slack / -d);
-            }
-        }
-
-        if !max_step.is_finite() || max_step <= 0.0 {
-            termination = IpmTermination::NoImprovingCycle;
-            stats.iterations = iter;
-            break;
-        }
-
-        let mut step = max_step * 0.99;
-        let mut accepted = false;
-        for _ in 0..20 {
-            let candidate_flow: Vec<f64> = flow
-                .iter()
-                .zip(delta.iter())
-                .map(|(f, d)| f + step * d)
-                .collect();
-            let candidate_potential = cost
-                .iter()
-                .zip(candidate_flow.iter())
-                .map(|(c, f)| c * f)
-                .sum::<f64>()
-                + barrier_lengths(&candidate_flow, &lower, &upper, alpha, min_delta)
-                    .iter()
-                    .sum::<f64>();
-            if candidate_potential < potential {
-                flow = candidate_flow;
-                stats.last_step_size = step;
-                accepted = true;
-                break;
-            }
-            step *= 0.5;
-        }
-
-        if !accepted {
+        if let Some((candidate_flow, step)) = search::line_search(
+            &flow,
+            &delta,
+            &cost,
+            &lower,
+            &upper,
+            &potential,
+            current_potential,
+        ) {
+            flow = candidate_flow;
+            stats.last_step_size = step;
+        } else {
             termination = IpmTermination::NoImprovingCycle;
             stats.iterations = iter;
             break;
@@ -199,6 +171,18 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
         stats,
         termination,
     })
+}
+
+fn compute_gradient_and_lengths(
+    potential: &Potential,
+    cost: &[f64],
+    flow: &[f64],
+    lower: &[f64],
+    upper: &[f64],
+) -> (Vec<f64>, Vec<f64>) {
+    let gradient = potential.gradient(cost, flow, lower, upper);
+    let lengths = potential.lengths(flow, lower, upper);
+    (gradient, lengths)
 }
 
 fn solve_feasible_flow(

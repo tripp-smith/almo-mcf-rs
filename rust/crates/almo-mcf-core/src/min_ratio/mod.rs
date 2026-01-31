@@ -2,6 +2,7 @@ use crate::trees::{LowStretchTree, TreeError};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 pub mod dynamic;
+pub mod static_oracle;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OracleQuery<'a> {
@@ -156,7 +157,10 @@ fn cycle_candidate_key(candidate: &CycleCandidate) -> (f64, usize) {
     (candidate.ratio, lead_edge)
 }
 
-fn select_better_candidate(left: CycleCandidate, right: CycleCandidate) -> CycleCandidate {
+pub(crate) fn select_better_candidate(
+    left: CycleCandidate,
+    right: CycleCandidate,
+) -> CycleCandidate {
     const EPS: f64 = 1e-12;
     let left_key = cycle_candidate_key(&left);
     let right_key = cycle_candidate_key(&right);
@@ -173,7 +177,7 @@ fn select_better_candidate(left: CycleCandidate, right: CycleCandidate) -> Cycle
     }
 }
 
-fn score_edge_cycle(
+pub(crate) fn score_edge_cycle(
     tree: &LowStretchTree,
     edge_id: usize,
     tails: &[u32],
@@ -213,7 +217,7 @@ fn score_edge_cycle(
 }
 
 #[cfg(feature = "parallel")]
-fn best_cycle_over_edges(
+pub(crate) fn best_cycle_over_edges(
     tree: &LowStretchTree,
     tails: &[u32],
     heads: &[u32],
@@ -227,7 +231,7 @@ fn best_cycle_over_edges(
 }
 
 #[cfg(not(feature = "parallel"))]
-fn best_cycle_over_edges(
+pub(crate) fn best_cycle_over_edges(
     tree: &LowStretchTree,
     tails: &[u32],
     heads: &[u32],
