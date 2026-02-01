@@ -69,7 +69,8 @@ impl Potential {
         let log_term = self.m_u.ln().max(2.0);
         let denom = log_term * log_term * log_term * self.edge_count.max(1.0);
         let factor = 1.0 / denom.max(1.0);
-        current_potential.abs().max(1.0) * factor
+        let floor = current_potential.abs().max(1.0) * factor;
+        floor.min(1e-6)
     }
 
     pub fn rounding_threshold(&self) -> f64 {
@@ -97,6 +98,7 @@ mod tests {
         let floor_small = potential.reduction_floor(1.0);
         let floor_large = potential.reduction_floor(100.0);
         assert!(floor_small > 0.0);
-        assert!(floor_large > floor_small);
+        assert!(floor_large >= floor_small);
+        assert!(floor_small <= 1e-6);
     }
 }
