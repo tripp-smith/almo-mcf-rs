@@ -84,6 +84,27 @@ pub struct DeterministicVertexDecomposition {
     pending_updates: usize,
 }
 
+#[derive(Debug, Clone)]
+struct OriginalEdge {
+    u: usize,
+    v: usize,
+    active: bool,
+    length: f64,
+    gradient: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeterministicDynamicSpanner {
+    pub node_count: usize,
+    pub stretch_bound: f64,
+    pub max_edges: usize,
+    pub rebuild_every: usize,
+    pending_updates: usize,
+    edges: Vec<OriginalEdge>,
+    edge_to_spanner: Vec<Option<usize>>,
+    spanner: DynamicSpanner,
+}
+
 impl SpannerHierarchy {
     pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
         let SpannerBuildParams {
@@ -546,6 +567,268 @@ impl DynamicSpanner {
             Some((u, v))
         } else {
             Some((v, u))
+        }
+    }
+}
+
+impl DeterministicDynamicSpanner {
+    pub fn new(
+        node_count: usize,
+        stretch_bound: f64,
+        max_edges: usize,
+        rebuild_every: usize,
+    ) -> Self {
+        Self {
+            node_count,
+            stretch_bound: stretch_bound.max(1.0),
+            max_edges: max_edges.max(1),
+            rebuild_every: rebuild_every.max(1),
+            pending_updates: 0,
+            edges: Vec::new(),
+            edge_to_spanner: Vec::new(),
+            spanner: DynamicSpanner::new(node_count),
+        }
+    }
+
+    pub fn sync_snapshot(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        gradients: &[f64],
+    ) {
+        self.node_count = node_count;
+        self.max_edges = self.max_edges.max(node_count.saturating_mul(8).max(1));
+        self.rebuild_every = self
+            .rebuild_every
+            .max(((node_count as f64).ln().ceil() as usize).max(1));
+        self.edges = tails
+            .iter()
+            .zip(heads.iter())
+            .zip(lengths.iter().zip(gradients.iter()))
+            .map(|((&tail, &head), (&length, &gradient))| OriginalEdge {
+                u: tail as usize,
+                v: head as usize,
+                active: true,
+                length,
+                gradient,
+            })
+            .collect();
+        self.edge_to_spanner = vec![None; self.edges.len()];
+        self.pending_updates = 0;
+        self.rebuild();
+    }
+
+    pub fn insert_edge_with_values(
+        &mut self,
+        u: usize,
+        v: usize,
+        length: f64,
+        gradient: f64,
+    ) -> usize {
+        let edge_id = self.edges.len();
+        self.edges.push(OriginalEdge {
+            u,
+            v,
+            active: true,
+            length,
+            gradient,
+        });
+        if u >= self.node_count || v >= self.node_count {
+            self.node_count = usize::max(u, v) + 1;
+        }
+        self.edge_to_spanner.push(None);
+        self.pending_updates += 1;
+        self.maintain();
+        edge_id
+    }
+
+    pub fn delete_edge(&mut self, edge_id: usize) -> bool {
+        let Some(edge) = self.edges.get_mut(edge_id) else {
+            return false;
+        };
+        if !edge.active {
+            return false;
+        }
+        edge.active = false;
+        self.pending_updates += 1;
+        self.maintain();
+        true
+    }
+
+    pub fn update_edge_values(&mut self, edge_id: usize, length: f64, gradient: f64) -> bool {
+        let Some(edge) = self.edges.get_mut(edge_id) else {
+            return false;
+        };
+        if !edge.active {
+            return false;
+        }
+        edge.length = length;
+        edge.gradient = gradient;
+        if let Some(spanner_edge) = self.edge_to_spanner.get(edge_id).and_then(|id| *id) {
+            self.spanner
+                .update_edge_values(spanner_edge, length, gradient);
+        }
+        self.pending_updates += 1;
+        self.maintain();
+        true
+    }
+
+    pub fn maintain(&mut self) {
+        if self.pending_updates >= self.rebuild_every {
+            self.rebuild();
+            self.pending_updates = 0;
+        }
+    }
+
+    pub fn embedding_valid(&self, edge_id: usize) -> bool {
+        self.spanner.embedding_valid(edge_id)
+    }
+
+    pub fn embedding_steps(&self, edge_id: usize) -> Option<&[EmbeddingStep]> {
+        self.spanner.embedding_steps(edge_id)
+    }
+
+    pub fn embed_edge_with_bfs(
+        &mut self,
+        edge_id: usize,
+        start: usize,
+        end: usize,
+    ) -> Option<Vec<EmbeddingStep>> {
+        self.spanner.embed_edge_with_bfs(edge_id, start, end)
+    }
+
+    pub fn embedding_ratio(&self, edge_id: usize) -> Option<f64> {
+        let metrics = self.spanner.embedding_metrics(edge_id)?;
+        let edge = self.edges.get(edge_id)?;
+        if !edge.active || edge.length <= 0.0 {
+            return None;
+        }
+        Some(metrics.total_length / edge.length)
+    }
+
+    fn rebuild(&mut self) {
+        let active_edges: Vec<(usize, &OriginalEdge)> = self
+            .edges
+            .iter()
+            .enumerate()
+            .filter(|(_, edge)| edge.active)
+            .collect();
+        self.spanner = DynamicSpanner::new(self.node_count);
+        self.edge_to_spanner = vec![None; self.edges.len()];
+        if active_edges.is_empty() {
+            return;
+        }
+
+        let mut tails = Vec::with_capacity(active_edges.len());
+        let mut heads = Vec::with_capacity(active_edges.len());
+        let mut lengths = Vec::with_capacity(active_edges.len());
+        let mut active_ids = Vec::with_capacity(active_edges.len());
+        for (edge_id, edge) in &active_edges {
+            tails.push(edge.u as u32);
+            heads.push(edge.v as u32);
+            lengths.push(edge.length.abs());
+            active_ids.push(*edge_id);
+        }
+
+        let Ok(tree) = LowStretchTree::build_low_stretch_deterministic(
+            self.node_count,
+            &tails,
+            &heads,
+            &lengths,
+        ) else {
+            return;
+        };
+
+        for (compact_id, &edge_id) in active_ids.iter().enumerate() {
+            if !tree.tree_edges.get(compact_id).copied().unwrap_or(false) {
+                continue;
+            }
+            let edge = &self.edges[edge_id];
+            let spanner_edge =
+                self.spanner
+                    .insert_edge_with_values(edge.u, edge.v, edge.length, edge.gradient);
+            self.edge_to_spanner[edge_id] = Some(spanner_edge);
+        }
+
+        for &edge_id in active_ids.iter() {
+            if self.edge_to_spanner[edge_id].is_some() {
+                continue;
+            }
+            let edge = &self.edges[edge_id];
+            let mut include_direct = edge.length <= 0.0;
+            if let Some(tree_distance) = tree.path_length(edge.u, edge.v) {
+                if tree_distance > self.stretch_bound * edge.length.abs() {
+                    include_direct = true;
+                }
+            } else {
+                include_direct = true;
+            }
+            if include_direct {
+                let spanner_edge = self.spanner.insert_edge_with_values(
+                    edge.u,
+                    edge.v,
+                    edge.length,
+                    edge.gradient,
+                );
+                self.edge_to_spanner[edge_id] = Some(spanner_edge);
+            }
+        }
+
+        if self.spanner.edge_count > self.max_edges {
+            self.max_edges = self.spanner.edge_count.max(self.max_edges);
+        }
+
+        self.spanner.embeddings.clear();
+        for (compact_id, &edge_id) in active_ids.iter().enumerate() {
+            if let Some(spanner_edge) = self.edge_to_spanner[edge_id] {
+                self.spanner
+                    .set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+                continue;
+            }
+            let Some(path) = tree.path_edges(
+                tails[compact_id] as usize,
+                heads[compact_id] as usize,
+                &tails,
+                &heads,
+            ) else {
+                let edge = &self.edges[edge_id];
+                let spanner_edge = self.spanner.insert_edge_with_values(
+                    edge.u,
+                    edge.v,
+                    edge.length,
+                    edge.gradient,
+                );
+                self.edge_to_spanner[edge_id] = Some(spanner_edge);
+                self.spanner
+                    .set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+                continue;
+            };
+            let mut steps = Vec::with_capacity(path.len());
+            let mut valid = true;
+            for (compact_edge_id, dir) in path {
+                let original_id = active_ids[compact_edge_id];
+                let Some(spanner_edge) = self.edge_to_spanner[original_id] else {
+                    valid = false;
+                    break;
+                };
+                steps.push(EmbeddingStep::new(spanner_edge, dir));
+            }
+            if valid {
+                self.spanner.set_embedding(edge_id, steps);
+            } else {
+                let edge = &self.edges[edge_id];
+                let spanner_edge = self.spanner.insert_edge_with_values(
+                    edge.u,
+                    edge.v,
+                    edge.length,
+                    edge.gradient,
+                );
+                self.edge_to_spanner[edge_id] = Some(spanner_edge);
+                self.spanner
+                    .set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+            }
         }
     }
 }

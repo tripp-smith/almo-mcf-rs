@@ -1,7 +1,127 @@
 use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
+use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
 use crate::trees::LowStretchTree;
+
+#[derive(Debug, Clone)]
+enum EdgeSpanner {
+    Randomized(DynamicSpanner),
+    Deterministic(DeterministicDynamicSpanner),
+}
+
+impl EdgeSpanner {
+    fn new(deterministic: bool, node_count: usize) -> Self {
+        if deterministic {
+            let max_edges = node_count.saturating_mul(8).max(1);
+            let rebuild_every = ((node_count as f64).ln().ceil() as usize).max(1);
+            EdgeSpanner::Deterministic(DeterministicDynamicSpanner::new(
+                node_count,
+                4.0,
+                max_edges,
+                rebuild_every,
+            ))
+        } else {
+            EdgeSpanner::Randomized(DynamicSpanner::new(node_count))
+        }
+    }
+
+    fn node_count(&self) -> usize {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.node_count,
+            EdgeSpanner::Deterministic(spanner) => spanner.node_count,
+        }
+    }
+
+    fn rebuild_from_snapshot(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) {
+        match self {
+            EdgeSpanner::Randomized(spanner) => {
+                let mut new_spanner = DynamicSpanner::new(node_count);
+                for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+                    let spanner_edge = new_spanner.insert_edge_with_values(
+                        tail as usize,
+                        head as usize,
+                        lengths[edge_id].abs(),
+                        gradients[edge_id],
+                    );
+                    new_spanner.set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+                }
+                *spanner = new_spanner;
+            }
+            EdgeSpanner::Deterministic(spanner) => {
+                spanner.sync_snapshot(node_count, tails, heads, lengths, gradients);
+            }
+        }
+    }
+
+    fn update_edge_values(&mut self, edge_id: usize, length: f64, gradient: f64) -> bool {
+        match self {
+            EdgeSpanner::Randomized(spanner) => {
+                spanner.update_edge_values(edge_id, length, gradient)
+            }
+            EdgeSpanner::Deterministic(spanner) => {
+                spanner.update_edge_values(edge_id, length, gradient)
+            }
+        }
+    }
+
+    fn embedding_valid(&self, edge_id: usize) -> bool {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.embedding_valid(edge_id),
+            EdgeSpanner::Deterministic(spanner) => spanner.embedding_valid(edge_id),
+        }
+    }
+
+    fn embedding_steps(&self, edge_id: usize) -> Option<&[EmbeddingStep]> {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.embedding_steps(edge_id),
+            EdgeSpanner::Deterministic(spanner) => spanner.embedding_steps(edge_id),
+        }
+    }
+
+    fn embed_edge_with_bfs(
+        &mut self,
+        edge_id: usize,
+        start: usize,
+        end: usize,
+    ) -> Option<Vec<EmbeddingStep>> {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.embed_edge_with_bfs(edge_id, start, end),
+            EdgeSpanner::Deterministic(spanner) => spanner.embed_edge_with_bfs(edge_id, start, end),
+        }
+    }
+
+    #[cfg(test)]
+    fn insert_edge(&mut self, u: usize, v: usize) -> usize {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.insert_edge(u, v),
+            EdgeSpanner::Deterministic(spanner) => spanner.insert_edge_with_values(u, v, 1.0, 0.0),
+        }
+    }
+
+    #[cfg(test)]
+    fn set_embedding(&mut self, edge_id: usize, steps: Vec<EmbeddingStep>) {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.set_embedding(edge_id, steps),
+            EdgeSpanner::Deterministic(_) => {}
+        }
+    }
+
+    #[cfg(test)]
+    fn embedding_endpoints(&self, edge_id: usize) -> Option<(usize, usize)> {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.embedding_endpoints(edge_id),
+            EdgeSpanner::Deterministic(_) => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TreeChainLevel {
@@ -135,7 +255,7 @@ impl TreeChainHierarchy {
 #[derive(Debug, Clone)]
 pub struct FullDynamicOracle {
     hierarchy: TreeChainHierarchy,
-    spanner: crate::spanner::DynamicSpanner,
+    spanner: EdgeSpanner,
     tree_chain: Option<TreeChain>,
     rebuild_game: RebuildGame,
     amortized: AmortizedTracker,
@@ -168,7 +288,7 @@ impl FullDynamicOracle {
                 approx_factor,
                 deterministic,
             ),
-            spanner: crate::spanner::DynamicSpanner::new(0),
+            spanner: EdgeSpanner::new(deterministic, 0),
             tree_chain: None,
             rebuild_game: RebuildGame::new(max_instability as f64, 1.5),
             amortized: AmortizedTracker::new(),
@@ -184,16 +304,16 @@ impl FullDynamicOracle {
         }
     }
 
-    fn rebuild_spanner(&mut self, node_count: usize, tails: &[u32], heads: &[u32]) {
-        let mut spanner = crate::spanner::DynamicSpanner::new(node_count);
-        for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
-            let spanner_edge = spanner.insert_edge(tail as usize, head as usize);
-            spanner.set_embedding(
-                edge_id,
-                vec![crate::spanner::EmbeddingStep::new(spanner_edge, 1)],
-            );
-        }
-        self.spanner = spanner;
+    fn rebuild_spanner(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) {
+        self.spanner
+            .rebuild_from_snapshot(node_count, tails, heads, gradients, lengths);
         self.last_edge_count = tails.len();
         self.node_count = node_count;
     }
@@ -216,13 +336,20 @@ impl FullDynamicOracle {
         Ok(())
     }
 
-    fn ensure_spanner(&mut self, node_count: usize, tails: &[u32], heads: &[u32]) {
+    fn ensure_spanner(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) {
         if self.node_count != node_count || self.last_edge_count != tails.len() {
-            self.rebuild_spanner(node_count, tails, heads);
+            self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             return;
         }
-        if self.spanner.node_count != node_count {
-            self.rebuild_spanner(node_count, tails, heads);
+        if self.spanner.node_count() != node_count {
+            self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
         }
     }
 
@@ -303,7 +430,7 @@ impl FullDynamicOracle {
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.amortized.record_query();
-        self.ensure_spanner(node_count, tails, heads);
+        self.ensure_spanner(node_count, tails, heads, gradients, lengths);
         self.refresh_spanner_values(gradients, lengths);
         self.hierarchy
             .update_instability_threshold(tails.len(), self.instability_exponent);
@@ -317,7 +444,7 @@ impl FullDynamicOracle {
             self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
         }
         if self.record_adversary_update(self.hierarchy.levels.len()) {
-            self.rebuild_spanner(node_count, tails, heads);
+            self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
         }
         let query = OracleQuery {
@@ -388,7 +515,7 @@ impl FullDynamicOracle {
                 }
             }
             if !valid {
-                self.rebuild_spanner(node_count, tails, heads);
+                self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             }
         }
 
@@ -803,7 +930,7 @@ mod tests {
         let mut spanner = DynamicSpanner::new(3);
         let edge = spanner.insert_edge(0, 1);
         spanner.set_embedding(0, vec![crate::spanner::EmbeddingStep::new(edge, 1)]);
-        dynamic.spanner = spanner;
+        dynamic.spanner = EdgeSpanner::Randomized(spanner);
         assert!(!dynamic.spanner.embedding_valid(2));
         dynamic
             .best_cycle(1, 3, &tails, &heads, &gradients, &lengths)
@@ -844,7 +971,7 @@ mod tests {
     #[test]
     fn dynamic_oracle_builds_reduction_for_missing_embedding() {
         let mut dynamic = FullDynamicOracle::new(61, 1, 1, 2, 0.0, false);
-        dynamic.spanner = DynamicSpanner::new(3);
+        dynamic.spanner = EdgeSpanner::Randomized(DynamicSpanner::new(3));
         let e0 = dynamic.spanner.insert_edge(0, 1);
         let e1 = dynamic.spanner.insert_edge(1, 2);
         let embedding = dynamic
