@@ -17,6 +17,12 @@ pub enum TreeError {
     MissingEdgeLengths,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeBuildMode {
+    Randomized,
+    Deterministic,
+}
+
 #[derive(Debug, Clone)]
 struct XorShift64 {
     state: u64,
@@ -62,6 +68,40 @@ impl LowStretchTree {
         lengths: &[f64],
         seed: u64,
     ) -> Result<Self, TreeError> {
+        Self::build_with_mode(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            TreeBuildMode::Randomized,
+            seed,
+        )
+    }
+
+    pub fn build_deterministic(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Result<Self, TreeError> {
+        Self::build_with_mode(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            TreeBuildMode::Deterministic,
+            0,
+        )
+    }
+
+    pub fn build_with_mode(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        mode: TreeBuildMode,
+        seed: u64,
+    ) -> Result<Self, TreeError> {
         if node_count == 0 {
             return Err(TreeError::EmptyGraph);
         }
@@ -77,11 +117,21 @@ impl LowStretchTree {
             adjacency[v].push((u, edge_id));
         }
 
-        let mut rng = XorShift64::new(seed);
         let mut order: Vec<usize> = (0..node_count).collect();
-        rng.shuffle(&mut order);
-        for neighbors in adjacency.iter_mut() {
-            rng.shuffle(neighbors);
+        match mode {
+            TreeBuildMode::Randomized => {
+                let mut rng = XorShift64::new(seed);
+                rng.shuffle(&mut order);
+                for neighbors in adjacency.iter_mut() {
+                    rng.shuffle(neighbors);
+                }
+            }
+            TreeBuildMode::Deterministic => {
+                order.sort_unstable();
+                for neighbors in adjacency.iter_mut() {
+                    neighbors.sort_unstable_by_key(|(neighbor, edge_id)| (*neighbor, *edge_id));
+                }
+            }
         }
 
         let mut parent = vec![usize::MAX; node_count];
@@ -148,21 +198,71 @@ impl LowStretchTree {
         lengths: &[f64],
         seed: u64,
     ) -> Result<Self, TreeError> {
+        Self::build_low_stretch_with_mode(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            TreeBuildMode::Randomized,
+            seed,
+        )
+    }
+
+    pub fn build_low_stretch_deterministic(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Result<Self, TreeError> {
+        Self::build_low_stretch_with_mode(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            TreeBuildMode::Deterministic,
+            0,
+        )
+    }
+
+    pub fn build_low_stretch_with_mode(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        mode: TreeBuildMode,
+        seed: u64,
+    ) -> Result<Self, TreeError> {
         if node_count == 0 {
             return Err(TreeError::EmptyGraph);
         }
         if tails.len() != heads.len() || tails.len() != lengths.len() {
             return Err(TreeError::MissingEdgeLengths);
         }
-        let mut rng = XorShift64::new(seed);
         let mut edge_ids: Vec<usize> = (0..tails.len()).collect();
-        edge_ids.sort_by(|&a, &b| {
-            let jitter_a = lengths[a] * (1.0 + 1e-6 * rng.next_f64());
-            let jitter_b = lengths[b] * (1.0 + 1e-6 * rng.next_f64());
-            jitter_a
-                .partial_cmp(&jitter_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        match mode {
+            TreeBuildMode::Randomized => {
+                let mut rng = XorShift64::new(seed);
+                edge_ids.sort_by(|&a, &b| {
+                    let jitter_a = lengths[a] * (1.0 + 1e-6 * rng.next_f64());
+                    let jitter_b = lengths[b] * (1.0 + 1e-6 * rng.next_f64());
+                    jitter_a
+                        .partial_cmp(&jitter_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+            TreeBuildMode::Deterministic => {
+                edge_ids.sort_by(|&a, &b| {
+                    let len_cmp = lengths[a]
+                        .partial_cmp(&lengths[b])
+                        .unwrap_or(std::cmp::Ordering::Equal);
+                    if len_cmp == std::cmp::Ordering::Equal {
+                        a.cmp(&b)
+                    } else {
+                        len_cmp
+                    }
+                });
+            }
+        }
 
         let mut uf = UnionFind::new(node_count);
         let mut tree_edges = vec![false; tails.len()];

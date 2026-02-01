@@ -71,6 +71,7 @@ fn build_options(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     approx_factor: Option<f64>,
+    deterministic: Option<bool>,
 ) -> PyResult<McfOptions> {
     let mut opts = McfOptions::default();
     if let Some(value) = max_iters {
@@ -103,6 +104,9 @@ fn build_options(
             ));
         }
         opts.approx_factor = value;
+    }
+    if let Some(value) = deterministic {
+        opts.deterministic = value;
     }
     if let Some(value) = rebuild_every {
         opts.strategy = Strategy::PeriodicRebuild {
@@ -184,7 +188,8 @@ fn min_cost_flow_edges(
     threads = None,
     alpha = None,
     use_ipm = None,
-    approx_factor = None
+    approx_factor = None,
+    deterministic = None
 ))]
 fn min_cost_flow_edges_with_options(
     py: Python<'_>,
@@ -204,6 +209,7 @@ fn min_cost_flow_edges_with_options(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     approx_factor: Option<f64>,
+    deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
     let opts = build_options(
@@ -216,6 +222,7 @@ fn min_cost_flow_edges_with_options(
         alpha,
         use_ipm,
         approx_factor,
+        deterministic,
     )?;
 
     let solution = min_cost_flow_exact(&problem, &opts)
@@ -254,7 +261,8 @@ fn min_cost_flow_edges_with_options(
     threads = None,
     alpha = None,
     use_ipm = None,
-    approx_factor = None
+    approx_factor = None,
+    deterministic = None
 ))]
 fn run_ipm_edges(
     py: Python<'_>,
@@ -274,6 +282,7 @@ fn run_ipm_edges(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     approx_factor: Option<f64>,
+    deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<f64>>, PyObject)> {
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
     let opts = build_options(
@@ -286,6 +295,7 @@ fn run_ipm_edges(
         alpha,
         use_ipm,
         approx_factor,
+        deterministic,
     )?;
 
     let ipm_result = ipm::run_ipm(&problem, &opts)

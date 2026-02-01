@@ -1,4 +1,4 @@
-use crate::trees::{LowStretchTree, TreeError};
+use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 pub mod dynamic;
@@ -25,6 +25,7 @@ pub struct CycleCandidate {
 #[derive(Debug, Clone)]
 pub struct MinRatioOracle {
     pub seed: u64,
+    pub deterministic: bool,
     pub rebuild_every: usize,
     pub last_rebuild: usize,
     pub tree: Option<LowStretchTree>,
@@ -38,6 +39,7 @@ impl MinRatioOracle {
     pub fn new(seed: u64, rebuild_every: usize) -> Self {
         Self {
             seed,
+            deterministic: false,
             rebuild_every,
             last_rebuild: 0,
             tree: None,
@@ -45,6 +47,13 @@ impl MinRatioOracle {
             ratio_tolerance: 0.0,
             stable_iters: 0,
             last_ratio: None,
+        }
+    }
+
+    pub fn new_with_mode(seed: u64, rebuild_every: usize, deterministic: bool) -> Self {
+        Self {
+            deterministic,
+            ..Self::new(seed, rebuild_every)
         }
     }
 
@@ -69,13 +78,26 @@ impl MinRatioOracle {
         heads: &[u32],
         lengths: &[f64],
     ) -> Result<(), TreeError> {
-        self.tree = Some(LowStretchTree::build(
-            node_count,
-            tails,
-            heads,
-            lengths,
-            self.seed ^ iter as u64,
-        )?);
+        let tree = if self.deterministic {
+            LowStretchTree::build_with_mode(
+                node_count,
+                tails,
+                heads,
+                lengths,
+                TreeBuildMode::Deterministic,
+                0,
+            )?
+        } else {
+            LowStretchTree::build_with_mode(
+                node_count,
+                tails,
+                heads,
+                lengths,
+                TreeBuildMode::Randomized,
+                self.seed ^ iter as u64,
+            )?
+        };
+        self.tree = Some(tree);
         self.last_rebuild = iter;
         self.stable_iters = 0;
         self.last_ratio = None;
@@ -422,6 +444,38 @@ mod tests {
             "expected negative ratio, got {}",
             best.ratio
         );
+    }
+
+    #[test]
+    fn deterministic_mode_rebuilds_with_stable_cycle() {
+        let tails = vec![0, 1, 0, 2];
+        let heads = vec![1, 2, 2, 0];
+        let gradients = vec![1.0, -3.0, 2.0, -1.0];
+        let lengths = vec![2.0, 1.0, 4.0, 3.0];
+        let mut oracle = MinRatioOracle::new_with_mode(17, 1, true);
+        let best_first = oracle
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
+            .unwrap()
+            .unwrap();
+        let best_second = oracle
+            .best_cycle(OracleQuery {
+                iter: 1,
+                node_count: 3,
+                tails: &tails,
+                heads: &heads,
+                gradients: &gradients,
+                lengths: &lengths,
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(best_first.cycle_edges, best_second.cycle_edges);
     }
 
     #[test]

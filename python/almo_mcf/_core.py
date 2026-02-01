@@ -114,12 +114,26 @@ def min_cost_flow_edges_with_options(
     seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
+    use_ipm: bool | None = None,
+    approx_factor: float | None = None,
+    deterministic: bool | None = None,
 ):
     """Compute the min-cost flow with optional solver tuning parameters.
 
     The fallback ignores tuning options and returns (flow, None).
     """
-    _ = (strategy, rebuild_every, max_iters, tolerance, seed, threads, alpha)
+    _ = (
+        strategy,
+        rebuild_every,
+        max_iters,
+        tolerance,
+        seed,
+        threads,
+        alpha,
+        use_ipm,
+        approx_factor,
+        deterministic,
+    )
     flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand)
     return flows, None
 
@@ -140,9 +154,23 @@ def run_ipm_edges(
     seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
+    use_ipm: bool | None = None,
+    approx_factor: float | None = None,
+    deterministic: bool | None = None,
 ):
     """Run the IPM solver directly and return (flow, stats) for debugging."""
-    _ = (strategy, rebuild_every, max_iters, tolerance, seed, threads, alpha)
+    _ = (
+        strategy,
+        rebuild_every,
+        max_iters,
+        tolerance,
+        seed,
+        threads,
+        alpha,
+        use_ipm,
+        approx_factor,
+        deterministic,
+    )
     flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand).astype(float)
     stats = {"iterations": 0, "final_gap": 0.0, "termination": "fallback"}
     return flows, stats

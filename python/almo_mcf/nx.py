@@ -126,6 +126,7 @@ def min_cost_flow(
     threads: int | None = None,
     alpha: float | None = None,
     approx_factor: float | None = None,
+    deterministic: bool | None = None,
     return_stats: bool = False,
 ) -> FlowDict | MultiFlowDict | tuple[FlowDict | MultiFlowDict, dict | None]:
     """Return a min-cost flow dict in NetworkX format.
@@ -141,6 +142,7 @@ def min_cost_flow(
         threads: Number of threads for solver execution.
         alpha: Optional override for the IPM barrier scaling constant.
         approx_factor: Approximation factor for the min-ratio cycle oracle.
+        deterministic: When True, disable randomized cycle selection for reproducibility.
         return_stats: When True, return (flow_dict, ipm_stats).
     """
     core = _load_core()
@@ -164,6 +166,7 @@ def min_cost_flow(
             alpha=alpha,
             use_ipm=use_ipm,
             approx_factor=approx_factor,
+            deterministic=deterministic,
         )
     else:
         flow = core.min_cost_flow_edges(

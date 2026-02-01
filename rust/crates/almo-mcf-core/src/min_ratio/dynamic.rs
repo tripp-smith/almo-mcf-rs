@@ -19,9 +19,10 @@ impl TreeChainLevel {
         rebuild_every: usize,
         max_instability: usize,
         approx_factor: f64,
+        deterministic: bool,
     ) -> Self {
         Self {
-            oracle: MinRatioOracle::new(seed, rebuild_every),
+            oracle: MinRatioOracle::new_with_mode(seed, rebuild_every, deterministic),
             instability_budget: 0,
             max_instability,
             last_rebuild: 0,
@@ -48,7 +49,7 @@ pub struct TreeChainHierarchy {
 
 impl TreeChainHierarchy {
     pub fn new(seed: u64, levels: usize, rebuild_every: usize, max_instability: usize) -> Self {
-        Self::new_with_approx(seed, levels, rebuild_every, max_instability, 0.0)
+        Self::new_with_approx(seed, levels, rebuild_every, max_instability, 0.0, false)
     }
 
     pub fn new_with_approx(
@@ -57,6 +58,7 @@ impl TreeChainHierarchy {
         rebuild_every: usize,
         max_instability: usize,
         approx_factor: f64,
+        deterministic: bool,
     ) -> Self {
         let mut chain = Vec::with_capacity(levels);
         for level in 0..levels {
@@ -65,6 +67,7 @@ impl TreeChainHierarchy {
                 rebuild_every,
                 max_instability,
                 approx_factor,
+                deterministic,
             ));
         }
         Self {
@@ -144,6 +147,7 @@ pub struct FullDynamicOracle {
     length_factor: f64,
     instability_exponent: f64,
     high_flow_threshold: f64,
+    deterministic: bool,
 }
 
 impl FullDynamicOracle {
@@ -153,6 +157,7 @@ impl FullDynamicOracle {
         rebuild_every: usize,
         max_instability: usize,
         approx_factor: f64,
+        deterministic: bool,
     ) -> Self {
         Self {
             hierarchy: TreeChainHierarchy::new_with_approx(
@@ -161,6 +166,7 @@ impl FullDynamicOracle {
                 rebuild_every,
                 max_instability,
                 approx_factor,
+                deterministic,
             ),
             spanner: crate::spanner::DynamicSpanner::new(0),
             tree_chain: None,
@@ -174,6 +180,7 @@ impl FullDynamicOracle {
             length_factor: 1.25,
             instability_exponent: 0.1,
             high_flow_threshold: 1.0,
+            deterministic,
         }
     }
 
@@ -199,7 +206,11 @@ impl FullDynamicOracle {
         lengths: &[f64],
         seed: u64,
     ) -> Result<(), TreeError> {
-        let tree = LowStretchTree::build_low_stretch(node_count, tails, heads, lengths, seed)?;
+        let tree = if self.deterministic {
+            LowStretchTree::build_low_stretch_deterministic(node_count, tails, heads, lengths)?
+        } else {
+            LowStretchTree::build_low_stretch(node_count, tails, heads, lengths, seed)?
+        };
         let chain = TreeChain::new(tree, tails, heads, 3, 8);
         self.tree_chain = Some(chain);
         Ok(())
@@ -734,7 +745,7 @@ mod tests {
         let gradients = vec![1.0, -2.0, 0.5, -3.0];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
         let mut fallback = MinRatioOracle::new(17, 1);
-        let mut dynamic = FullDynamicOracle::new(17, 2, 1, 5, 0.0);
+        let mut dynamic = FullDynamicOracle::new(17, 2, 1, 5, 0.0, false);
         let fallback_best = fallback
             .best_cycle(OracleQuery {
                 iter: 0,
@@ -764,7 +775,7 @@ mod tests {
         let heads = vec![1, 2, 0, 2];
         let gradients = vec![1.0, -2.0, 0.5, -3.0];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
-        let mut dynamic = FullDynamicOracle::new(31, 3, 2, 2, 0.1);
+        let mut dynamic = FullDynamicOracle::new(31, 3, 2, 2, 0.1, false);
         let first = dynamic
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap()
@@ -785,7 +796,7 @@ mod tests {
         let heads = vec![1, 2, 0, 2];
         let gradients = vec![1.0, -2.0, 0.5, -3.0];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
-        let mut dynamic = FullDynamicOracle::new(41, 2, 1, 5, 0.0);
+        let mut dynamic = FullDynamicOracle::new(41, 2, 1, 5, 0.0, false);
         dynamic
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap();
@@ -806,7 +817,7 @@ mod tests {
         let heads = vec![1, 2, 0, 2];
         let gradients = vec![1.0, -2.0, 0.5, -3.0];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
-        let mut dynamic = FullDynamicOracle::new(51, 2, 1, 5, 0.0);
+        let mut dynamic = FullDynamicOracle::new(51, 2, 1, 5, 0.0, false);
         dynamic
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap();
@@ -820,7 +831,7 @@ mod tests {
         let heads = vec![1, 2, 0];
         let gradients = vec![0.2, -0.1, 0.3];
         let lengths = vec![1.0, 1.0, 1.0];
-        let mut dynamic = FullDynamicOracle::new(59, 2, 1, 5, 0.0);
+        let mut dynamic = FullDynamicOracle::new(59, 2, 1, 5, 0.0, false);
         dynamic
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap();
@@ -832,7 +843,7 @@ mod tests {
 
     #[test]
     fn dynamic_oracle_builds_reduction_for_missing_embedding() {
-        let mut dynamic = FullDynamicOracle::new(61, 1, 1, 2, 0.0);
+        let mut dynamic = FullDynamicOracle::new(61, 1, 1, 2, 0.0, false);
         dynamic.spanner = DynamicSpanner::new(3);
         let e0 = dynamic.spanner.insert_edge(0, 1);
         let e1 = dynamic.spanner.insert_edge(1, 2);
@@ -860,7 +871,7 @@ mod tests {
         let heads = vec![1, 2, 2];
         let gradients = vec![0.5, -1.5, 0.2];
         let lengths = vec![1.0, 2.0, 1.0];
-        let mut dynamic = FullDynamicOracle::new(73, 1, 1, 3, 0.0);
+        let mut dynamic = FullDynamicOracle::new(73, 1, 1, 3, 0.0, false);
         dynamic
             .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
             .unwrap();
@@ -949,7 +960,7 @@ mod tests {
 
     #[test]
     fn high_flow_edges_respect_threshold() {
-        let mut oracle = FullDynamicOracle::new(3, 1, 1, 1, 0.0);
+        let mut oracle = FullDynamicOracle::new(3, 1, 1, 1, 0.0, false);
         oracle.high_flow_threshold = 0.5;
         let gradients = vec![1.0, 0.1, 2.0];
         let lengths = vec![1.0, 1.0, 10.0];
