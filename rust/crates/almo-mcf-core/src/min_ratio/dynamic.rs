@@ -2,7 +2,8 @@ use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
 use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
-use crate::trees::LowStretchTree;
+use crate::trees::dynamic::DynamicTree;
+use crate::trees::{LowStretchTree, TreeBuildMode};
 
 #[derive(Debug, Clone)]
 enum EdgeSpanner {
@@ -257,6 +258,7 @@ pub struct FullDynamicOracle {
     hierarchy: TreeChainHierarchy,
     spanner: EdgeSpanner,
     tree_chain: Option<TreeChain>,
+    dynamic_tree: Option<DynamicTree>,
     rebuild_game: RebuildGame,
     amortized: AmortizedTracker,
     last_gradients: Vec<f64>,
@@ -268,6 +270,9 @@ pub struct FullDynamicOracle {
     instability_exponent: f64,
     high_flow_threshold: f64,
     deterministic: bool,
+    tree_rebuild_every: usize,
+    tree_update_budget: usize,
+    tree_length_factor: f64,
 }
 
 impl FullDynamicOracle {
@@ -290,6 +295,7 @@ impl FullDynamicOracle {
             ),
             spanner: EdgeSpanner::new(deterministic, 0),
             tree_chain: None,
+            dynamic_tree: None,
             rebuild_game: RebuildGame::new(max_instability as f64, 1.5),
             amortized: AmortizedTracker::new(),
             last_gradients: Vec::new(),
@@ -301,6 +307,9 @@ impl FullDynamicOracle {
             instability_exponent: 0.1,
             high_flow_threshold: 1.0,
             deterministic,
+            tree_rebuild_every: rebuild_every.max(1),
+            tree_update_budget: max_instability.max(1),
+            tree_length_factor: 1.25,
         }
     }
 
@@ -320,19 +329,104 @@ impl FullDynamicOracle {
 
     fn rebuild_tree_chain(
         &mut self,
+        iter: usize,
         node_count: usize,
         tails: &[u32],
         heads: &[u32],
         lengths: &[f64],
-        seed: u64,
     ) -> Result<(), TreeError> {
-        let tree = if self.deterministic {
-            LowStretchTree::build_low_stretch_deterministic(node_count, tails, heads, lengths)?
+        let build_mode = if self.deterministic {
+            TreeBuildMode::Deterministic
         } else {
-            LowStretchTree::build_low_stretch(node_count, tails, heads, lengths, seed)?
+            TreeBuildMode::Randomized
         };
-        let chain = TreeChain::new(tree, tails, heads, 3, 8);
+        let dynamic_tree = match self.dynamic_tree.take() {
+            Some(mut tree) => {
+                tree.build_mode = build_mode;
+                tree.seed = self.hierarchy.seed;
+                tree.update_from_snapshot(iter, node_count, tails, heads, lengths)?;
+                tree
+            }
+            None => DynamicTree::new_with_mode(
+                node_count,
+                tails.to_vec(),
+                heads.to_vec(),
+                lengths.to_vec(),
+                self.hierarchy.seed,
+                self.tree_rebuild_every,
+                self.tree_update_budget,
+                self.tree_length_factor,
+                build_mode,
+            )?,
+        };
+        self.dynamic_tree = Some(dynamic_tree);
+        let tree = self
+            .dynamic_tree
+            .as_ref()
+            .expect("dynamic tree should exist")
+            .tree
+            .clone();
+        let chain = TreeChain::new(tree, tails, heads, 3, 8, self.deterministic);
         self.tree_chain = Some(chain);
+        Ok(())
+    }
+
+    fn ensure_tree_chain(
+        &mut self,
+        iter: usize,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Result<(), TreeError> {
+        if self.tree_chain.is_none() || self.dynamic_tree.is_none() {
+            return self.rebuild_tree_chain(iter, node_count, tails, heads, lengths);
+        }
+
+        let Some(tree_state) = self.dynamic_tree.as_mut() else {
+            return self.rebuild_tree_chain(iter, node_count, tails, heads, lengths);
+        };
+        let rebuilt = tree_state.update_from_snapshot(iter, node_count, tails, heads, lengths)?;
+        if rebuilt
+            || self
+                .tree_chain
+                .as_ref()
+                .map(|chain| chain.tree.parent.len() != node_count)
+                .unwrap_or(true)
+        {
+            if let Some(chain) = self.tree_chain.as_mut() {
+                chain.refresh(tree_state.tree.clone(), tails, heads);
+            }
+        }
+        Ok(())
+    }
+
+    fn force_tree_chain_rebuild(
+        &mut self,
+        iter: usize,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Result<(), TreeError> {
+        if self.dynamic_tree.is_none() {
+            self.rebuild_tree_chain(iter, node_count, tails, heads, lengths)?;
+        }
+        if let Some(tree_state) = self.dynamic_tree.as_mut() {
+            tree_state.force_rebuild(iter)?;
+        }
+        let tree = self
+            .dynamic_tree
+            .as_ref()
+            .expect("dynamic tree should exist")
+            .tree
+            .clone();
+        if let Some(chain) = self.tree_chain.as_mut() {
+            chain.refresh(tree, tails, heads);
+        } else {
+            let chain = TreeChain::new(tree, tails, heads, 3, 8, self.deterministic);
+            self.tree_chain = Some(chain);
+        }
         Ok(())
     }
 
@@ -435,17 +529,10 @@ impl FullDynamicOracle {
         self.hierarchy
             .update_instability_threshold(tails.len(), self.instability_exponent);
         self.record_updates(gradients, lengths);
-        if self
-            .tree_chain
-            .as_ref()
-            .map(|chain| chain.tree.parent.len() != node_count)
-            .unwrap_or(true)
-        {
-            self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
-        }
+        self.ensure_tree_chain(iter, node_count, tails, heads, lengths)?;
         if self.record_adversary_update(self.hierarchy.levels.len()) {
             self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
-            self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
+            self.force_tree_chain_rebuild(iter, node_count, tails, heads, lengths)?;
         }
         let query = OracleQuery {
             iter,
@@ -585,6 +672,7 @@ pub struct TreeChain {
     pub off_tree_edges: Vec<usize>,
     pub sample_size: usize,
     pub max_off_tree: usize,
+    pub deterministic: bool,
 }
 
 impl TreeChain {
@@ -594,19 +682,28 @@ impl TreeChain {
         heads: &[u32],
         sample_size: usize,
         max_off_tree: usize,
+        deterministic: bool,
     ) -> Self {
-        let off_tree_edges = collect_off_tree_edges(&tree, tails, heads, max_off_tree);
+        let off_tree_edges =
+            collect_off_tree_edges(&tree, tails, heads, max_off_tree, deterministic);
         Self {
             tree,
             off_tree_edges,
             sample_size: sample_size.max(1),
             max_off_tree: max_off_tree.max(1),
+            deterministic,
         }
     }
 
     pub fn refresh(&mut self, tree: LowStretchTree, tails: &[u32], heads: &[u32]) {
         self.tree = tree;
-        self.off_tree_edges = collect_off_tree_edges(&self.tree, tails, heads, self.max_off_tree);
+        self.off_tree_edges = collect_off_tree_edges(
+            &self.tree,
+            tails,
+            heads,
+            self.max_off_tree,
+            self.deterministic,
+        );
     }
 
     pub fn approx_best_cycle(
@@ -655,6 +752,7 @@ fn collect_off_tree_edges(
     tails: &[u32],
     _heads: &[u32],
     max_off_tree: usize,
+    deterministic: bool,
 ) -> Vec<usize> {
     let mut off_tree = Vec::new();
     for edge_id in 0..tails.len() {
@@ -664,6 +762,9 @@ fn collect_off_tree_edges(
         if off_tree.len() >= max_off_tree {
             break;
         }
+    }
+    if deterministic {
+        off_tree.sort_unstable();
     }
     off_tree
 }
@@ -939,6 +1040,44 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_oracle_is_deterministic_across_seeds() {
+        let tails = vec![0, 1, 2, 0, 1];
+        let heads = vec![1, 2, 0, 2, 3];
+        let gradients = vec![0.5, -1.5, -2.0, 1.0, 0.25];
+        let lengths = vec![1.0, 1.0, 2.0, 2.0, 3.0];
+        let mut oracle_a = FullDynamicOracle::new(7, 2, 2, 4, 0.0, true);
+        let mut oracle_b = FullDynamicOracle::new(99, 2, 2, 4, 0.0, true);
+        let best_a = oracle_a
+            .best_cycle(0, 4, &tails, &heads, &gradients, &lengths)
+            .unwrap()
+            .unwrap();
+        let best_b = oracle_b
+            .best_cycle(0, 4, &tails, &heads, &gradients, &lengths)
+            .unwrap()
+            .unwrap();
+        assert_eq!(best_a.cycle_edges, best_b.cycle_edges);
+        assert!((best_a.ratio - best_b.ratio).abs() < 1e-12);
+    }
+
+    #[test]
+    fn tree_chain_refreshes_after_length_shift() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let gradients = vec![1.0, -2.0, 0.5, -3.0];
+        let lengths = vec![1.0, 2.0, 1.0, 3.0];
+        let mut dynamic = FullDynamicOracle::new(71, 2, 1, 2, 0.0, true);
+        dynamic
+            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        let updated_lengths = vec![1.5, 4.5, 1.1, 3.4];
+        let cycle = dynamic
+            .best_cycle(1, 3, &tails, &heads, &gradients, &updated_lengths)
+            .unwrap()
+            .unwrap();
+        assert!(!cycle.cycle_edges.is_empty());
+    }
+
+    #[test]
     fn dynamic_oracle_exposes_edge_embeddings() {
         let tails = vec![0, 1, 2, 0];
         let heads = vec![1, 2, 0, 2];
@@ -1032,7 +1171,7 @@ mod tests {
         let gradients = vec![1.0, -2.0, 0.5, -3.0];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
         let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 2).unwrap();
-        let chain = TreeChain::new(tree, &tails, &heads, 2, 4);
+        let chain = TreeChain::new(tree, &tails, &heads, 2, 4, false);
         let candidate = chain
             .approx_best_cycle(&tails, &heads, &gradients, &lengths)
             .expect("candidate should exist");
@@ -1045,7 +1184,7 @@ mod tests {
         let heads = vec![1, 2, 0, 2];
         let lengths = vec![1.0, 2.0, 1.0, 3.0];
         let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 6).unwrap();
-        let chain = TreeChain::new(tree, &tails, &heads, 2, 4);
+        let chain = TreeChain::new(tree, &tails, &heads, 2, 4, false);
         let edges = chain.off_tree_edges.clone();
         let union = chain
             .cycle_union_edges(&edges, &tails, &heads)
