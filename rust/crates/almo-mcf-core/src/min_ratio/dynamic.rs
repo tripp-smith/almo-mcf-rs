@@ -358,9 +358,11 @@ impl FullDynamicOracle {
 
         if let Some(chain) = self.tree_chain.as_ref() {
             if let Some(chain_best) = chain.approx_best_cycle(tails, heads, gradients, lengths) {
-                let score = chain_best.ratio;
-                if best_score.map(|best| score < best).unwrap_or(true) {
-                    best_score = Some(score);
+                let current_score = best
+                    .as_ref()
+                    .map(|best| best.ratio)
+                    .unwrap_or(f64::INFINITY);
+                if chain_best.ratio < current_score {
                     best = Some(chain_best);
                 }
             }
@@ -513,7 +515,7 @@ impl TreeChain {
 fn collect_off_tree_edges(
     tree: &LowStretchTree,
     tails: &[u32],
-    heads: &[u32],
+    _heads: &[u32],
     max_off_tree: usize,
 ) -> Vec<usize> {
     let mut off_tree = Vec::new();
