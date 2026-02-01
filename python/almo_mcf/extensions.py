@@ -77,8 +77,12 @@ def min_cost_flow_convex(
     p: float = 2.0,
     scale: float = 1.0,
     max_units: int = 10_000,
+    deterministic: bool | None = None,
 ) -> FlowDict | MultiFlowDict:
-    """Solve min-cost flow with separable convex costs via unit expansion."""
+    """Solve min-cost flow with separable convex costs via unit expansion.
+
+    deterministic defaults to the solver's deterministic behavior when None.
+    """
     if not G.is_directed():
         raise ValueError("Only directed graphs are supported.")
 
@@ -131,7 +135,7 @@ def min_cost_flow_convex(
     for node, node_demand in demand.items():
         expanded.nodes[node]["demand"] = int(node_demand)
 
-    flow = min_cost_flow(expanded)
+    flow = min_cost_flow(expanded, deterministic=deterministic)
     flow_dict: MultiFlowDict = {node: {} for node in G.nodes()}
     for edge_id, expanded_edges in edge_map.items():
         u, v, key = edge_id
@@ -151,8 +155,12 @@ def max_flow_via_min_cost_circulation(
     sink: Node,
     *,
     capacity: str = "capacity",
+    deterministic: bool | None = None,
 ) -> tuple[int, FlowDict]:
-    """Compute max flow using a min-cost circulation reduction."""
+    """Compute max flow using a min-cost circulation reduction.
+
+    deterministic defaults to the solver's deterministic behavior when None.
+    """
     if not G.is_directed():
         raise ValueError("Only directed graphs are supported.")
 
@@ -186,7 +194,7 @@ def max_flow_via_min_cost_circulation(
         mid = (low + high) // 2
         graph = build_graph(mid)
         try:
-            flow_dict = min_cost_flow(graph)
+            flow_dict = min_cost_flow(graph, deterministic=deterministic)
         except Exception:
             high = mid - 1
             continue

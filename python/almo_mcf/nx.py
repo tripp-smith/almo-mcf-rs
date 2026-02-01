@@ -143,11 +143,14 @@ def min_cost_flow(
         alpha: Optional override for the IPM barrier scaling constant.
         approx_factor: Approximation factor for the min-ratio cycle oracle.
         deterministic: When True, disable randomized cycle selection for reproducibility.
+            Defaults to True for deterministic solver behavior.
         return_stats: When True, return (flow_dict, ipm_stats).
     """
     core = _load_core()
     tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
     lower, upper, cost, demand, capacity_scale = _scale_problem(lower, upper, cost, demand)
+    if deterministic is None:
+        deterministic = True
     if hasattr(core, "min_cost_flow_edges_with_options"):
         flow, stats = core.min_cost_flow_edges_with_options(
             len(index),
