@@ -74,10 +74,10 @@
 
 ### 4. Enhance Dynamic Data Structures for Determinism
 
-- [ ] Adapt tree-chain maintenance to use deterministic low-stretch spanning trees
-- [ ] Implement fully dynamic low-stretch spanning tree with subpolynomial average stretch and update time
-- [ ] Update circulation routing and min-ratio cycle finder to work with deterministic components
-- [ ] Ensure handling of non-oblivious adversaries via deterministic rebuilding strategies
+- [x] Adapt tree-chain maintenance to use deterministic low-stretch spanning trees
+- [x] Implement fully dynamic low-stretch spanning tree with subpolynomial average stretch and update time
+- [x] Update circulation routing and min-ratio cycle finder to work with deterministic components
+- [x] Ensure handling of non-oblivious adversaries via deterministic rebuilding strategies
 
 ### 5. Update Core Solver and API
 
