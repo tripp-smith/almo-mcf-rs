@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible issue with the IPM solver or API.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug! Please provide the details below so we can reproduce the issue.
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: Output of `python -c "import almo_mcf; print(almo_mcf.__version__)"`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: solver_path
+    attributes:
+      label: Solver path
+      options:
+        - IPM (use_ipm=True)
+        - SSP (use_ipm=False)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: graph_details
+    attributes:
+      label: Graph characteristics
+      description: Include node/edge counts, capacity ranges, and any structure (e.g., grid, random, bipartite).
+      placeholder: 5k nodes, 120k edges, capacities up to 100, random sparse digraph
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal code or commands to reproduce the issue.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack traces
+      render: shell
