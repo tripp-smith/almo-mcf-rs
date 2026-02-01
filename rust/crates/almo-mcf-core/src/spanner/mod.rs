@@ -75,6 +75,15 @@ pub struct RecursiveHierarchy {
     pub vertex_maps: Vec<Vec<usize>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DeterministicVertexDecomposition {
+    pub node_count: usize,
+    pub cluster_target: usize,
+    pub rebuild_every: usize,
+    pub map: Vec<usize>,
+    pending_updates: usize,
+}
+
 impl SpannerHierarchy {
     pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
         let SpannerBuildParams {
@@ -634,12 +643,8 @@ impl RecursiveHierarchy {
         let mut heads = params.heads.to_vec();
         let mut lengths = params.lengths.to_vec();
         for level in 0..params.levels.max(1) {
-            let tree = LowStretchTree::build_low_stretch(
-                node_count,
-                &tails,
-                &heads,
-                &lengths,
-                params.seed + level as u64,
+            let tree = LowStretchTree::build_low_stretch_deterministic(
+                node_count, &tails, &heads, &lengths,
             )
             .ok()?;
             let mut spanner = DynamicSpanner::new(node_count);
@@ -653,9 +658,11 @@ impl RecursiveHierarchy {
                 spanner.set_embedding(edge_id, vec![EmbeddingStep::new(edge_id, 1)]);
             }
             levels.push(SpannerLevel { spanner, tree });
-            let map = compress_vertices(
+            let map = deterministic_vertex_map(
                 node_count,
-                levels.last().unwrap().tree.root.clone(),
+                &tails,
+                &heads,
+                &levels.last().unwrap().tree,
                 cluster_ratio,
             );
             vertex_maps.push(map.clone());
@@ -676,11 +683,93 @@ impl RecursiveHierarchy {
     }
 }
 
-fn compress_vertices(node_count: usize, roots: Vec<usize>, cluster_ratio: usize) -> Vec<usize> {
-    let ratio = cluster_ratio.max(1);
-    let mut map = vec![0; node_count];
-    for (node, root) in roots.into_iter().enumerate().take(node_count) {
-        map[node] = root / ratio;
+impl DeterministicVertexDecomposition {
+    pub fn new(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        tree: &LowStretchTree,
+        cluster_target: usize,
+        rebuild_every: usize,
+    ) -> Self {
+        let map = deterministic_vertex_map(node_count, tails, heads, tree, cluster_target);
+        Self {
+            node_count,
+            cluster_target: cluster_target.max(1),
+            rebuild_every: rebuild_every.max(1),
+            map,
+            pending_updates: 0,
+        }
+    }
+
+    pub fn record_update(&mut self, updates: usize) {
+        self.pending_updates = self.pending_updates.saturating_add(updates);
+    }
+
+    pub fn should_rebuild(&self) -> bool {
+        self.pending_updates >= self.rebuild_every
+    }
+
+    pub fn rebuild(&mut self, tails: &[u32], heads: &[u32], tree: &LowStretchTree) {
+        self.map =
+            deterministic_vertex_map(self.node_count, tails, heads, tree, self.cluster_target);
+        self.pending_updates = 0;
+    }
+
+    pub fn default_rebuild_every(node_count: usize) -> usize {
+        ((node_count as f64).ln().ceil() as usize).max(1)
+    }
+}
+
+fn deterministic_vertex_map(
+    node_count: usize,
+    tails: &[u32],
+    heads: &[u32],
+    tree: &LowStretchTree,
+    cluster_target: usize,
+) -> Vec<usize> {
+    let target = cluster_target.max(1);
+    let mut adjacency = vec![Vec::new(); node_count];
+    for edge_id in 0..tails.len() {
+        if !tree.tree_edges.get(edge_id).copied().unwrap_or(false) {
+            continue;
+        }
+        let u = tails[edge_id] as usize;
+        let v = heads[edge_id] as usize;
+        if u >= node_count || v >= node_count {
+            continue;
+        }
+        adjacency[u].push(v);
+        adjacency[v].push(u);
+    }
+    for neighbors in adjacency.iter_mut() {
+        neighbors.sort_unstable();
+    }
+
+    let mut map = vec![usize::MAX; node_count];
+    let mut cluster_id = 0;
+    for start in 0..node_count {
+        if map[start] != usize::MAX {
+            continue;
+        }
+        let mut queue = VecDeque::new();
+        queue.push_back(start);
+        map[start] = cluster_id;
+        let mut size = 1;
+        while let Some(node) = queue.pop_front() {
+            for &neighbor in &adjacency[node] {
+                if map[neighbor] != usize::MAX {
+                    continue;
+                }
+                if size >= target {
+                    continue;
+                }
+                map[neighbor] = cluster_id;
+                size += 1;
+                queue.push_back(neighbor);
+            }
+        }
+        cluster_id += 1;
     }
     map
 }
@@ -942,5 +1031,49 @@ mod tests {
         .unwrap();
         assert_eq!(hierarchy.levels.len(), 2);
         assert!(hierarchy.vertex_maps[1].iter().max().unwrap() < &4);
+    }
+
+    #[test]
+    fn deterministic_vertex_map_clusters_tree_edges() {
+        let tails = vec![0, 1, 2, 3, 4];
+        let heads = vec![1, 2, 3, 4, 0];
+        let lengths = vec![1.0; tails.len()];
+        let tree =
+            LowStretchTree::build_low_stretch_deterministic(5, &tails, &heads, &lengths).unwrap();
+        let map = deterministic_vertex_map(5, &tails, &heads, &tree, 2);
+        assert_eq!(map.len(), 5);
+        let unique_clusters = map
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        assert!(unique_clusters.len() >= 3);
+        for edge_id in 0..tails.len() {
+            if !tree.tree_edges[edge_id] {
+                continue;
+            }
+            let u = tails[edge_id] as usize;
+            let v = heads[edge_id] as usize;
+            let cu = map[u];
+            let cv = map[v];
+            assert!(cu != usize::MAX && cv != usize::MAX);
+        }
+    }
+
+    #[test]
+    fn deterministic_decomposition_rebuilds_on_updates() {
+        let tails = vec![0, 1, 2];
+        let heads = vec![1, 2, 0];
+        let lengths = vec![1.0; 3];
+        let tree =
+            LowStretchTree::build_low_stretch_deterministic(3, &tails, &heads, &lengths).unwrap();
+        let mut decomposition =
+            DeterministicVertexDecomposition::new(3, &tails, &heads, &tree, 1, 2);
+        assert!(!decomposition.should_rebuild());
+        decomposition.record_update(1);
+        assert!(!decomposition.should_rebuild());
+        decomposition.record_update(1);
+        assert!(decomposition.should_rebuild());
+        decomposition.rebuild(&tails, &heads, &tree);
+        assert!(!decomposition.should_rebuild());
     }
 }
