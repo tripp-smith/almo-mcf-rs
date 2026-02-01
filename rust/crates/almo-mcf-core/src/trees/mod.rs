@@ -325,6 +325,45 @@ impl LowStretchTree {
         cycle.push((edge_id, 1));
         Some(cycle)
     }
+
+    pub fn edge_stretch(
+        &self,
+        edge_id: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Option<f64> {
+        if edge_id >= tails.len() || edge_id >= heads.len() || edge_id >= lengths.len() {
+            return None;
+        }
+        let length = lengths[edge_id];
+        if length <= 0.0 {
+            return None;
+        }
+        let tail = tails[edge_id] as usize;
+        let head = heads[edge_id] as usize;
+        let tree_distance = self.path_length(tail, head)?;
+        Some(tree_distance / length)
+    }
+
+    pub fn average_stretch(&self, tails: &[u32], heads: &[u32], lengths: &[f64]) -> Option<f64> {
+        if tails.is_empty() {
+            return None;
+        }
+        let mut total = 0.0;
+        let mut count = 0.0;
+        for edge_id in 0..tails.len() {
+            if let Some(stretch) = self.edge_stretch(edge_id, tails, heads, lengths) {
+                total += stretch;
+                count += 1.0;
+            }
+        }
+        if count == 0.0 {
+            None
+        } else {
+            Some(total / count)
+        }
+    }
 }
 
 fn edge_direction(from: usize, to: usize, edge_id: usize, tails: &[u32], heads: &[u32]) -> i8 {
@@ -454,5 +493,25 @@ mod tests {
         let tree = LowStretchTree::build_low_stretch(4, &tails, &heads, &lengths, 5).unwrap();
         assert_eq!(tree.tree_edges.iter().filter(|&&b| b).count(), 3);
         assert!(tree.path_length(0, 3).is_some());
+    }
+
+    #[test]
+    fn average_stretch_is_finite() {
+        let tails = vec![0, 1, 2, 0, 3];
+        let heads = vec![1, 2, 3, 3, 4];
+        let lengths = vec![1.0, 1.5, 2.0, 2.5, 1.0];
+        let tree = LowStretchTree::build_low_stretch(5, &tails, &heads, &lengths, 11).unwrap();
+        let stretch = tree.average_stretch(&tails, &heads, &lengths).unwrap();
+        assert!(stretch.is_finite());
+        assert!(stretch >= 1.0);
+    }
+
+    #[test]
+    fn edge_stretch_returns_none_for_invalid_length() {
+        let tails = vec![0];
+        let heads = vec![1];
+        let lengths = vec![0.0];
+        let tree = LowStretchTree::build(2, &tails, &heads, &lengths, 3).unwrap();
+        assert!(tree.edge_stretch(0, &tails, &heads, &lengths).is_none());
     }
 }
