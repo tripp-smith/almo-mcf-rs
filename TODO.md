@@ -67,10 +67,10 @@
 
 ### 3. Implement Deterministic Dynamic Spanner for Edge Sparsification
 
-- [ ] Develop dynamic spanner data structure to maintain sparse supergraph embeddings under edge insertions/deletions
-- [ ] Ensure spanner preserves approximate distances with subpolynomial stretch
-- [ ] Integrate amortized m^{o(1)} time per update for edge changes
-- [ ] Verify spanner on dynamic graphs, comparing memory and time to original randomized spanner
+- [x] Develop dynamic spanner data structure to maintain sparse supergraph embeddings under edge insertions/deletions
+- [x] Ensure spanner preserves approximate distances with subpolynomial stretch
+- [x] Integrate amortized m^{o(1)} time per update for edge changes
+- [x] Verify spanner on dynamic graphs, comparing memory and time to original randomized spanner
 
 ### 4. Enhance Dynamic Data Structures for Determinism
 
