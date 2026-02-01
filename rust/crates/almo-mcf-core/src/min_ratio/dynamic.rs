@@ -97,6 +97,27 @@ impl EdgeSpanner {
             EdgeSpanner::Deterministic(spanner) => spanner.embed_edge_with_bfs(edge_id, start, end),
         }
     }
+
+    fn insert_edge(&mut self, u: usize, v: usize) -> usize {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.insert_edge(u, v),
+            EdgeSpanner::Deterministic(spanner) => spanner.insert_edge_with_values(u, v, 1.0, 0.0),
+        }
+    }
+
+    fn set_embedding(&mut self, edge_id: usize, steps: Vec<EmbeddingStep>) {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.set_embedding(edge_id, steps),
+            EdgeSpanner::Deterministic(_) => {}
+        }
+    }
+
+    fn embedding_endpoints(&self, edge_id: usize) -> Option<(usize, usize)> {
+        match self {
+            EdgeSpanner::Randomized(spanner) => spanner.embedding_endpoints(edge_id),
+            EdgeSpanner::Deterministic(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -906,7 +927,7 @@ mod tests {
         let mut spanner = DynamicSpanner::new(3);
         let edge = spanner.insert_edge(0, 1);
         spanner.set_embedding(0, vec![crate::spanner::EmbeddingStep::new(edge, 1)]);
-        dynamic.spanner = spanner;
+        dynamic.spanner = EdgeSpanner::Randomized(spanner);
         assert!(!dynamic.spanner.embedding_valid(2));
         dynamic
             .best_cycle(1, 3, &tails, &heads, &gradients, &lengths)
@@ -947,7 +968,7 @@ mod tests {
     #[test]
     fn dynamic_oracle_builds_reduction_for_missing_embedding() {
         let mut dynamic = FullDynamicOracle::new(61, 1, 1, 2, 0.0, false);
-        dynamic.spanner = DynamicSpanner::new(3);
+        dynamic.spanner = EdgeSpanner::Randomized(DynamicSpanner::new(3));
         let e0 = dynamic.spanner.insert_edge(0, 1);
         let e1 = dynamic.spanner.insert_edge(1, 2);
         let embedding = dynamic

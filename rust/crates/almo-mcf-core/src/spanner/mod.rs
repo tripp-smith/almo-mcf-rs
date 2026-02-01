@@ -752,7 +752,7 @@ impl DeterministicDynamicSpanner {
             self.edge_to_spanner[edge_id] = Some(spanner_edge);
         }
 
-        for (compact_id, &edge_id) in active_ids.iter().enumerate() {
+        for (_compact_id, &edge_id) in active_ids.iter().enumerate() {
             if self.edge_to_spanner[edge_id].is_some() {
                 continue;
             }
