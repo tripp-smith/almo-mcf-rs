@@ -11,6 +11,7 @@ FlowValue = int
 
 Edge = tuple[Node, Node]
 FlowDict = Dict[Node, Dict[Node, FlowValue]]
+MultiFlowDict = Dict[Node, Dict[Node, Dict[Hashable, FlowValue]]]
 NodeDemandMap = Mapping[Node, Demand]
 EdgeCostMap = Mapping[Edge, Cost]
 EdgeCapacityMap = Mapping[Edge, Capacity]
@@ -23,6 +24,7 @@ __all__ = [
     "EdgeCapacityMap",
     "EdgeCostMap",
     "FlowDict",
+    "MultiFlowDict",
     "FlowValue",
     "Node",
     "NodeDemandMap",
