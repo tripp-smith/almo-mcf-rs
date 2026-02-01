@@ -70,6 +70,16 @@ to a coarse multiplicative factor (paper allows (m^{o(1)})).
 
 The almost-linear result comes from maintaining these structures dynamically across many slowly changing instances (stable gradients/lengths), using a recursive hierarchy and dynamic spanners. 
 
+### Deterministic derandomization framework (Phase II)
+
+The derandomization framework in arXiv:2309.16629 describes deterministic replacements for the randomized sampling in the original min-ratio cycle framework (arXiv:2203.00671). For our integration we treat determinism as a first-class mode:
+
+* **Vertex sparsification:** deterministic hierarchical decompositions replace random tree sampling so the vertex-reduction hierarchy is reproducible.
+* **Edge sparsification:** deterministic dynamic spanners replace randomized embeddings and ensure stable update triggers.
+* **Cycle selection:** min-ratio cycle evaluation uses deterministic low-stretch tree construction and stable tie-breaking across edges.
+
+These notes are captured in `docs/derandomization.md`, which tracks the key paper comparisons and highlights the deterministic invariants we maintain in the IPM loop. 
+
 ## Architecture
 
 ### Repository layout

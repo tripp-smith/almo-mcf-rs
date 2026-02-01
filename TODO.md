@@ -54,9 +54,9 @@
 
 ### 1. Review and Integrate Derandomization Framework
 
-- [ ] Read and annotate the paper (arXiv:2309.16629) for key sections on derandomization, comparing to the original randomized framework in arXiv:2203.00671
-- [ ] Update DESIGN_SPEC.md to include deterministic variants, highlighting differences in vertex and edge sparsification
-- [ ] Modify IPM loop to support deterministic cycle finding, ensuring compatibility with existing randomized paths
+- [x] Read and annotate the paper (arXiv:2309.16629) for key sections on derandomization, comparing to the original randomized framework in arXiv:2203.00671
+- [x] Update DESIGN_SPEC.md to include deterministic variants, highlighting differences in vertex and edge sparsification
+- [x] Modify IPM loop to support deterministic cycle finding, ensuring compatibility with existing randomized paths
 
 ### 2. Implement Deterministic Vertex Sparsification
 

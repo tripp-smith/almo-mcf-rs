@@ -69,7 +69,11 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
     let mut dynamic_oracle = None;
     match opts.strategy {
         Strategy::PeriodicRebuild { rebuild_every } => {
-            fallback_oracle = Some(MinRatioOracle::new(opts.seed, rebuild_every));
+            fallback_oracle = Some(MinRatioOracle::new_with_mode(
+                opts.seed,
+                rebuild_every,
+                opts.deterministic,
+            ));
         }
         Strategy::FullDynamic => {
             dynamic_oracle = Some(FullDynamicOracle::new(
@@ -78,6 +82,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
                 1,
                 10,
                 opts.approx_factor,
+                opts.deterministic,
             ));
         }
     }

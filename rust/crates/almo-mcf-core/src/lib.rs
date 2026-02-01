@@ -53,6 +53,7 @@ pub struct McfOptions {
     pub alpha: Option<f64>,
     pub use_ipm: Option<bool>,
     pub approx_factor: f64,
+    pub deterministic: bool,
 }
 
 impl Default for McfOptions {
@@ -67,6 +68,7 @@ impl Default for McfOptions {
             alpha: None,
             use_ipm: None,
             approx_factor: 0.1,
+            deterministic: false,
         }
     }
 }
