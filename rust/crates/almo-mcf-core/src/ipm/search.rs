@@ -25,6 +25,7 @@ pub fn line_search(
     }
 
     let mut step = max_step * 0.99;
+    let reduction_floor = potential.reduction_floor(current_potential);
     for _ in 0..20 {
         let candidate_flow: Vec<f64> = flow
             .iter()
@@ -32,7 +33,7 @@ pub fn line_search(
             .map(|(f, d)| f + step * d)
             .collect();
         let candidate_potential = potential.value(cost, &candidate_flow, lower, upper);
-        if candidate_potential < current_potential {
+        if candidate_potential <= current_potential - reduction_floor {
             return Some((candidate_flow, step));
         }
         step *= 0.5;

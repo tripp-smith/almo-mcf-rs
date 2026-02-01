@@ -1,11 +1,13 @@
-use crate::numerics::barrier::barrier_lengths;
-use crate::numerics::{duality_gap_proxy, gradient_proxy};
+use crate::numerics::barrier::{barrier_gradient, barrier_lengths};
+use crate::numerics::duality_gap_proxy;
 
 #[derive(Debug, Clone)]
 pub struct Potential {
     pub alpha: f64,
     pub min_delta: f64,
     pub threads: usize,
+    pub m_u: f64,
+    pub edge_count: f64,
 }
 
 impl Potential {
@@ -25,6 +27,8 @@ impl Potential {
             alpha,
             min_delta: 1e-9,
             threads,
+            m_u,
+            edge_count,
         }
     }
 
@@ -37,7 +41,7 @@ impl Potential {
         let barrier = barrier_lengths(flow, lower, upper, self.alpha, self.min_delta, self.threads)
             .iter()
             .sum::<f64>();
-        base_cost + self.alpha * base_cost + barrier
+        (1.0 + self.alpha) * base_cost + barrier
     }
 
     pub fn lengths(&self, flow: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
@@ -45,10 +49,53 @@ impl Potential {
     }
 
     pub fn gradient(&self, cost: &[f64], flow: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
-        gradient_proxy(cost, flow, lower, upper, self.alpha, self.min_delta)
+        let barrier =
+            barrier_gradient(flow, lower, upper, self.alpha, self.min_delta, self.threads);
+        cost.iter()
+            .zip(barrier.iter())
+            .map(|(c, b)| (1.0 + self.alpha) * c + b)
+            .collect()
     }
 
     pub fn duality_gap(&self, gradient: &[f64], flow: &[f64]) -> f64 {
         duality_gap_proxy(gradient, flow)
+    }
+
+    pub fn termination_target(&self) -> f64 {
+        -200.0 * self.edge_count * self.m_u.ln().max(1.0)
+    }
+
+    pub fn reduction_floor(&self, current_potential: f64) -> f64 {
+        let log_term = self.m_u.ln().max(2.0);
+        let factor = 1.0 / (log_term * log_term);
+        current_potential.abs().max(1.0) * factor
+    }
+
+    pub fn rounding_threshold(&self) -> f64 {
+        self.m_u.powf(-10.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derives_alpha_and_thresholds_from_m_u() {
+        let upper = vec![10.0, 5.0];
+        let potential = Potential::new(&upper, None, 1);
+        assert!(potential.alpha > 0.0);
+        assert!(potential.rounding_threshold() < 1.0);
+        assert!(potential.termination_target().is_sign_negative());
+    }
+
+    #[test]
+    fn reduction_floor_scales_with_potential() {
+        let upper = vec![8.0, 4.0, 6.0];
+        let potential = Potential::new(&upper, None, 1);
+        let floor_small = potential.reduction_floor(1.0);
+        let floor_large = potential.reduction_floor(100.0);
+        assert!(floor_small > 0.0);
+        assert!(floor_large > floor_small);
     }
 }

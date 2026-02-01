@@ -47,6 +47,7 @@ def test_ipm_rounding_produces_integral_flow():
     graph = _build_large_graph()
     flow, stats = min_cost_flow(
         graph,
+        use_ipm=True,
         strategy="full_dynamic",
         max_iters=50,
         tolerance=1e6,
@@ -132,3 +133,23 @@ def test_run_ipm_periodic_rebuild_emits_stats():
         "time_limit",
         "no_improving_cycle",
     }
+
+
+def test_use_ipm_flag_toggles_solver_path():
+    graph = _build_large_graph()
+    flow, stats = min_cost_flow(
+        graph,
+        use_ipm=False,
+        return_stats=True,
+    )
+    assert stats is None
+    _assert_flow_integral(graph, flow)
+
+    flow, stats = min_cost_flow(
+        graph,
+        use_ipm=True,
+        max_iters=5,
+        return_stats=True,
+    )
+    assert stats is not None
+    _assert_flow_integral(graph, flow)
