@@ -2,7 +2,7 @@ use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
 use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
-use crate::trees::dynamic::DynamicTree;
+use crate::trees::dynamic::{DynamicTree, DynamicTreeConfig};
 use crate::trees::{LowStretchTree, TreeBuildMode};
 
 #[derive(Debug, Clone)]
@@ -347,17 +347,25 @@ impl FullDynamicOracle {
                 tree.update_from_snapshot(iter, node_count, tails, heads, lengths)?;
                 tree
             }
-            None => DynamicTree::new_with_mode(
-                node_count,
-                tails.to_vec(),
-                heads.to_vec(),
-                lengths.to_vec(),
-                self.hierarchy.seed,
-                self.tree_rebuild_every,
-                self.tree_update_budget,
-                self.tree_length_factor,
-                build_mode,
-            )?,
+            None => {
+                let mut config = DynamicTreeConfig {
+                    seed: self.hierarchy.seed,
+                    rebuild_every: self.tree_rebuild_every,
+                    update_budget: self.tree_update_budget,
+                    length_factor: self.tree_length_factor,
+                    build_mode,
+                };
+                if self.deterministic {
+                    config.seed = 0;
+                }
+                DynamicTree::new_with_config(
+                    node_count,
+                    tails.to_vec(),
+                    heads.to_vec(),
+                    lengths.to_vec(),
+                    config,
+                )?
+            }
         };
         self.dynamic_tree = Some(dynamic_tree);
         let tree = self

@@ -1,5 +1,36 @@
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 
+#[derive(Debug, Clone, Copy)]
+pub struct DynamicTreeConfig {
+    pub seed: u64,
+    pub rebuild_every: usize,
+    pub update_budget: usize,
+    pub length_factor: f64,
+    pub build_mode: TreeBuildMode,
+}
+
+impl DynamicTreeConfig {
+    pub fn randomized(seed: u64, rebuild_every: usize, update_budget: usize) -> Self {
+        Self {
+            seed,
+            rebuild_every,
+            update_budget,
+            length_factor: 1.25,
+            build_mode: TreeBuildMode::Randomized,
+        }
+    }
+
+    pub fn deterministic(rebuild_every: usize, update_budget: usize) -> Self {
+        Self {
+            seed: 0,
+            rebuild_every,
+            update_budget,
+            length_factor: 1.25,
+            build_mode: TreeBuildMode::Deterministic,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DynamicTree {
     pub node_count: usize,
@@ -26,33 +57,30 @@ impl DynamicTree {
         rebuild_every: usize,
         update_budget: usize,
     ) -> Result<Self, TreeError> {
-        Self::new_with_mode(
+        Self::new_with_config(
             node_count,
             tails,
             heads,
             lengths,
-            seed,
-            rebuild_every,
-            update_budget,
-            1.25,
-            TreeBuildMode::Randomized,
+            DynamicTreeConfig::randomized(seed, rebuild_every, update_budget),
         )
     }
 
-    pub fn new_with_mode(
+    pub fn new_with_config(
         node_count: usize,
         tails: Vec<u32>,
         heads: Vec<u32>,
         lengths: Vec<f64>,
-        seed: u64,
-        rebuild_every: usize,
-        update_budget: usize,
-        length_factor: f64,
-        build_mode: TreeBuildMode,
+        config: DynamicTreeConfig,
     ) -> Result<Self, TreeError> {
         let edge_count = lengths.len();
         let tree = LowStretchTree::build_low_stretch_with_mode(
-            node_count, &tails, &heads, &lengths, build_mode, seed,
+            node_count,
+            &tails,
+            &heads,
+            &lengths,
+            config.build_mode,
+            config.seed,
         )?;
         Ok(Self {
             node_count,
@@ -60,12 +88,12 @@ impl DynamicTree {
             heads,
             lengths,
             active: vec![true; edge_count],
-            rebuild_every: rebuild_every.max(1),
-            update_budget,
+            rebuild_every: config.rebuild_every.max(1),
+            update_budget: config.update_budget,
             update_count: 0,
-            length_factor: length_factor.max(1.0),
-            build_mode,
-            seed,
+            length_factor: config.length_factor.max(1.0),
+            build_mode: config.build_mode,
+            seed: config.seed,
             tree,
         })
     }
@@ -77,18 +105,13 @@ impl DynamicTree {
         lengths: Vec<f64>,
         rebuild_every: usize,
         update_budget: usize,
-        length_factor: f64,
     ) -> Result<Self, TreeError> {
-        Self::new_with_mode(
+        Self::new_with_config(
             node_count,
             tails,
             heads,
             lengths,
-            0,
-            rebuild_every,
-            update_budget,
-            length_factor,
-            TreeBuildMode::Deterministic,
+            DynamicTreeConfig::deterministic(rebuild_every, update_budget),
         )
     }
 
@@ -116,6 +139,7 @@ impl DynamicTree {
         let Some(current) = self.lengths.get_mut(edge_id) else {
             return false;
         };
+        self.update_count = self.update_count.saturating_add(1);
         if *current > 0.0 && length > 0.0 {
             let ratio = if length > *current {
                 length / *current
@@ -123,7 +147,7 @@ impl DynamicTree {
                 *current / length
             };
             if ratio > self.length_factor {
-                self.update_count += 1;
+                self.update_count = self.update_count.saturating_add(1);
             }
         }
         *current = length;
@@ -229,8 +253,7 @@ mod tests {
         let heads = vec![1, 2, 0];
         let lengths = vec![1.0, 1.0, 1.0];
         let mut tree =
-            DynamicTree::new_deterministic(3, tails.clone(), heads.clone(), lengths, 5, 1, 1.1)
-                .unwrap();
+            DynamicTree::new_deterministic(3, tails.clone(), heads.clone(), lengths, 5, 1).unwrap();
         let updated_lengths = vec![2.5, 1.0, 1.0];
         let rebuilt = tree
             .update_from_snapshot(2, 3, &tails, &heads, &updated_lengths)
