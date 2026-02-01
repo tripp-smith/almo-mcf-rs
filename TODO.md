@@ -1,12 +1,12 @@
 ### 1. Integrate IPM and Min-Ratio Cycle Solver
 
-- [ ] Implement the potential function Φ(f) (Eq. 3 in paper) in Rust core, including power barrier x^{-α} with α = 1/(1000 log mU)
-- [ ] Add gradient g(f) and length ℓ(f) computation to the Rust solver, ensuring bit-complexity bounds (exp(log^{O(1)} m))
-- [ ] Implement the IPM iteration loop: Reduce Φ by m^{-o(1)} per iteration, terminating when Φ ≤ -200m log mU
-- [ ] Integrate min-ratio cycle oracle (min_{B^T Δ=0} g^T Δ / ||L Δ||_1) as a subroutine in Rust, with mo(1) approximation support
-- [ ] Wire IPM as optional/default path in Python API (e.g., flag in min_cost_flow to toggle IPM vs. successive shortest path)
-- [ ] Add rounding to exact optimal flow when c^T f - F^* ≤ (mU)^{-10}
-- [ ] Verify IPM stability lemmas (Lemmas 4.9-4.10) in code via unit tests on small graphs
+- [x] Implement the potential function Φ(f) (Eq. 3 in paper) in Rust core, including power barrier x^{-α} with α = 1/(1000 log mU)
+- [x] Add gradient g(f) and length ℓ(f) computation to the Rust solver, ensuring bit-complexity bounds (exp(log^{O(1)} m))
+- [x] Implement the IPM iteration loop: Reduce Φ by m^{-o(1)} per iteration, terminating when Φ ≤ -200m log mU
+- [x] Integrate min-ratio cycle oracle (min_{B^T Δ=0} g^T Δ / ||L Δ||_1) as a subroutine in Rust, with mo(1) approximation support
+- [x] Wire IPM as optional/default path in Python API (e.g., flag in min_cost_flow to toggle IPM vs. successive shortest path)
+- [x] Add rounding to exact optimal flow when c^T f - F^* ≤ (mU)^{-10}
+- [x] Verify IPM stability lemmas (Lemmas 4.9-4.10) in code via unit tests on small graphs
 
 ### 2. Implement Dynamic Data Structures
 

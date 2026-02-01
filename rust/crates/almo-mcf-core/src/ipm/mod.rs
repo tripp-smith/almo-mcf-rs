@@ -1,7 +1,6 @@
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
-use crate::numerics::duality_gap_proxy;
 use crate::{McfError, McfOptions, McfProblem, Strategy};
 use std::time::Instant;
 
@@ -64,6 +63,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
     let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
     let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
     let potential = Potential::new(&upper, opts.alpha, opts.threads);
+    let termination_target = potential.termination_target();
 
     let mut fallback_oracle = None;
     let mut dynamic_oracle = None;
@@ -72,7 +72,13 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             fallback_oracle = Some(MinRatioOracle::new(opts.seed, rebuild_every));
         }
         Strategy::FullDynamic => {
-            dynamic_oracle = Some(FullDynamicOracle::new(opts.seed, 3, 1, 10, 0.1));
+            dynamic_oracle = Some(FullDynamicOracle::new(
+                opts.seed,
+                3,
+                1,
+                10,
+                opts.approx_factor,
+            ));
         }
     }
 
@@ -97,7 +103,12 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
         let current_potential = potential.value(&cost, &flow, &lower, &upper);
         stats.potentials.push(current_potential);
-        stats.last_gap = duality_gap_proxy(&gradient, &flow);
+        stats.last_gap = potential.duality_gap(&gradient, &flow);
+        if current_potential <= termination_target {
+            termination = IpmTermination::Converged;
+            stats.iterations = iter;
+            break;
+        }
         if stats.last_gap < opts.tolerance {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
@@ -165,6 +176,10 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
 
         stats.iterations = iter + 1;
     }
+
+    let (final_gradient, _) =
+        compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+    stats.last_gap = potential.duality_gap(&final_gradient, &flow);
 
     Ok(IpmResult {
         flow,
@@ -530,5 +545,55 @@ mod tests {
         };
         let result = run_ipm(&problem, &opts).unwrap();
         assert_eq!(result.termination, IpmTermination::Converged);
+    }
+
+    #[test]
+    fn line_search_achieves_required_potential_drop() {
+        let problem = cycle_problem(vec![-3, -2, -4]);
+        let feasible = initialize_feasible_flow(&problem).unwrap();
+        let flow = feasible.flow;
+        let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
+        let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
+        let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
+        let potential = Potential::new(&upper, None, 1);
+
+        let (gradient, lengths) =
+            compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+        let mut oracle = MinRatioOracle::new(3, 1);
+        let best = oracle
+            .best_cycle(OracleQuery {
+                iter: 0,
+                node_count: problem.node_count,
+                tails: &problem.tails,
+                heads: &problem.heads,
+                gradients: &gradient,
+                lengths: &lengths,
+            })
+            .unwrap()
+            .unwrap();
+
+        let mut delta = vec![0.0_f64; flow.len()];
+        for (edge_id, dir) in best.cycle_edges {
+            delta[edge_id] += dir as f64;
+        }
+
+        let current_potential = potential.value(&cost, &flow, &lower, &upper);
+        let (candidate_flow, _step) = search::line_search(
+            &flow,
+            &delta,
+            &cost,
+            &lower,
+            &upper,
+            &potential,
+            current_potential,
+        )
+        .expect("line search should find improvement");
+        let candidate_potential = potential.value(&cost, &candidate_flow, &lower, &upper);
+        assert!(
+            candidate_potential <= current_potential - potential.reduction_floor(current_potential)
+        );
+        for (idx, &value) in candidate_flow.iter().enumerate() {
+            assert!(value > lower[idx] && value < upper[idx]);
+        }
     }
 }

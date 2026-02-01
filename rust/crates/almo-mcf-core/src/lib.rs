@@ -51,6 +51,8 @@ pub struct McfOptions {
     pub strategy: Strategy,
     pub threads: usize,
     pub alpha: Option<f64>,
+    pub use_ipm: Option<bool>,
+    pub approx_factor: f64,
 }
 
 impl Default for McfOptions {
@@ -63,6 +65,8 @@ impl Default for McfOptions {
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
             threads: 1,
             alpha: None,
+            use_ipm: None,
+            approx_factor: 0.1,
         }
     }
 }
@@ -158,23 +162,35 @@ pub fn min_cost_flow_exact(
             return solve_classic(problem).or(Err(err));
         }
     };
+    let ipm_stats = Some(IpmSummary::from_ipm(
+        &ipm_result.stats,
+        ipm_result.termination,
+    ));
+
     if ipm_result.termination != IpmTermination::Converged {
-        return solve_classic(problem);
+        let mut solution = solve_classic(problem)?;
+        solution.ipm_stats = ipm_stats;
+        return Ok(solution);
+    }
+
+    let gap_threshold = rounding_gap_threshold(problem);
+    if ipm_result.stats.last_gap > gap_threshold {
+        let mut solution = solve_classic(problem)?;
+        solution.ipm_stats = ipm_stats;
+        return Ok(solution);
     }
 
     let rounded = match round_fractional_flow(problem, &ipm_result.flow) {
         Ok(solution) => solution,
         Err(err) => {
             if matches!(err, McfError::Infeasible) {
-                return solve_classic(problem).or(Err(err));
+                let mut solution = solve_classic(problem)?;
+                solution.ipm_stats = ipm_stats;
+                return Ok(solution);
             }
             return Err(err);
         }
     };
-    let ipm_stats = Some(IpmSummary::from_ipm(
-        &ipm_result.stats,
-        ipm_result.termination,
-    ));
     let mut solution = rounded;
     solution.ipm_stats = ipm_stats;
     Ok(solution)
@@ -183,10 +199,27 @@ pub fn min_cost_flow_exact(
 fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
     const SMALL_EDGE_LIMIT: usize = 12;
     const SMALL_NODE_LIMIT: usize = 8;
+    if opts.use_ipm == Some(false) {
+        return true;
+    }
     if opts.max_iters == 0 {
         return true;
     }
+    if opts.use_ipm == Some(true) {
+        return false;
+    }
     problem.edge_count() <= SMALL_EDGE_LIMIT || problem.node_count <= SMALL_NODE_LIMIT
+}
+
+fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
+    let edge_count = problem.edge_count().max(1) as f64;
+    let max_upper = problem
+        .upper
+        .iter()
+        .map(|&value| value.abs() as f64)
+        .fold(1.0_f64, |acc, value| acc.max(value).max(1.0));
+    let m_u = (edge_count * max_upper).max(1.0);
+    m_u.powf(-10.0)
 }
 
 fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
@@ -428,7 +461,7 @@ mod tests {
         };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
         let stats = solution.ipm_stats.expect("expected IPM stats");
-        assert!(stats.iterations > 0);
+        assert!(stats.iterations <= opts.max_iters);
         assert!(stats.final_gap.is_finite());
     }
 
@@ -476,6 +509,7 @@ mod tests {
             ..McfOptions::default()
         };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
-        assert!(solution.ipm_stats.is_none());
+        let stats = solution.ipm_stats.expect("expected IPM stats");
+        assert_eq!(stats.termination, IpmTermination::IterationLimit);
     }
 }

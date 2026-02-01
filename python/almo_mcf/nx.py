@@ -68,6 +68,7 @@ def _graph_to_arrays(G) -> Tuple[list, list, list, list, list, list, Dict, list]
 def min_cost_flow(
     G,
     *,
+    use_ipm: bool | None = None,
     strategy: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
@@ -75,12 +76,14 @@ def min_cost_flow(
     seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
+    approx_factor: float | None = None,
     return_stats: bool = False,
 ) -> FlowDict | tuple[FlowDict, dict | None]:
     """Return a min-cost flow dict in NetworkX format.
 
     Args:
         G: NetworkX DiGraph with demand and capacity attributes.
+        use_ipm: Force enabling or disabling the IPM solver path.
         strategy: Optional solver strategy ("full_dynamic" or "periodic_rebuild").
         rebuild_every: Rebuild cadence for periodic rebuild strategy.
         max_iters: Maximum IPM iterations.
@@ -88,6 +91,7 @@ def min_cost_flow(
         seed: Random seed for IPM oracles.
         threads: Number of threads for solver execution.
         alpha: Optional override for the IPM barrier scaling constant.
+        approx_factor: Approximation factor for the min-ratio cycle oracle.
         return_stats: When True, return (flow_dict, ipm_stats).
     """
     core = _load_core()
@@ -108,6 +112,8 @@ def min_cost_flow(
             seed=seed,
             threads=threads,
             alpha=alpha,
+            use_ipm=use_ipm,
+            approx_factor=approx_factor,
         )
     else:
         flow = core.min_cost_flow_edges(
