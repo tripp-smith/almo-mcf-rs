@@ -60,10 +60,10 @@
 
 ### 2. Implement Deterministic Vertex Sparsification
 
-- [ ] Replace random tree sampling with deterministic hierarchical graph decomposition for vertex reduction
-- [ ] Implement recursive decomposition algorithm to preserve connectivity for min-ratio cycle detection
-- [ ] Add support for subpolynomial amortized updates in the decomposition structure
-- [ ] Test vertex sparsification on small graphs for determinism and correctness against randomized version
+- [x] Replace random tree sampling with deterministic hierarchical graph decomposition for vertex reduction
+- [x] Implement recursive decomposition algorithm to preserve connectivity for min-ratio cycle detection
+- [x] Add support for subpolynomial amortized updates in the decomposition structure
+- [x] Test vertex sparsification on small graphs for determinism and correctness against randomized version
 
 ### 3. Implement Deterministic Dynamic Spanner for Edge Sparsification
 
