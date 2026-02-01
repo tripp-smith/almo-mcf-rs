@@ -10,14 +10,14 @@
 
 ### 2. Implement Dynamic Data Structures
 
-- [ ] Implement dynamic spanner with embeddings (Theorem 5.1): Maintain subgraph H with Õ(n) edges, explicit path embeddings of length mo(1), amortized mo(1) changes per update
-- [ ] Add low-stretch spanning tree (LST) computation with stretch str_{T,ℓ}^e = Õ(1) in expectation
-- [ ] Build recursive hierarchy: Reduce vertices via partial tree embeddings, edges via spanners
-- [ ] Implement tree-chain maintenance: Support returning mo(1)-approx min-ratio cycles (union of mo(1) off-tree edges + tree paths)
-- [ ] Add circulation routing along cycles (pass circulations through tree-chain with length upper bounds)
-- [ ] Implement approximate min-ratio cycle finder in tree-chain
-- [ ] Handle non-oblivious adversaries: Integrate rebuilding game (analyze game algorithm, dynamic min-ratio using game)
-- [ ] Ensure amortized mo(1) time per update/query (insert/delete edge, update g/ℓ, identify high-flow edges)
+- [x] Implement dynamic spanner with embeddings (Theorem 5.1): Maintain subgraph H with Õ(n) edges, explicit path embeddings of length mo(1), amortized mo(1) changes per update
+- [x] Add low-stretch spanning tree (LST) computation with stretch str_{T,ℓ}^e = Õ(1) in expectation
+- [x] Build recursive hierarchy: Reduce vertices via partial tree embeddings, edges via spanners
+- [x] Implement tree-chain maintenance: Support returning mo(1)-approx min-ratio cycles (union of mo(1) off-tree edges + tree paths)
+- [x] Add circulation routing along cycles (pass circulations through tree-chain with length upper bounds)
+- [x] Implement approximate min-ratio cycle finder in tree-chain
+- [x] Handle non-oblivious adversaries: Integrate rebuilding game (analyze game algorithm, dynamic min-ratio using game)
+- [x] Ensure amortized mo(1) time per update/query (insert/delete edge, update g/ℓ, identify high-flow edges)
 
 ### 3. Handle Edge Cases and Extensions
 

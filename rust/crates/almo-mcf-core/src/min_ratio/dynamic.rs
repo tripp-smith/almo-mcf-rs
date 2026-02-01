@@ -1,4 +1,7 @@
-use crate::min_ratio::{CycleCandidate, MinRatioOracle, OracleQuery, TreeError};
+use crate::min_ratio::{
+    select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
+};
+use crate::trees::LowStretchTree;
 
 #[derive(Debug, Clone)]
 pub struct TreeChainLevel {
@@ -130,6 +133,9 @@ impl TreeChainHierarchy {
 pub struct FullDynamicOracle {
     hierarchy: TreeChainHierarchy,
     spanner: crate::spanner::DynamicSpanner,
+    tree_chain: Option<TreeChain>,
+    rebuild_game: RebuildGame,
+    amortized: AmortizedTracker,
     last_gradients: Vec<f64>,
     last_lengths: Vec<f64>,
     last_edge_count: usize,
@@ -137,6 +143,7 @@ pub struct FullDynamicOracle {
     gradient_change: f64,
     length_factor: f64,
     instability_exponent: f64,
+    high_flow_threshold: f64,
 }
 
 impl FullDynamicOracle {
@@ -156,6 +163,9 @@ impl FullDynamicOracle {
                 approx_factor,
             ),
             spanner: crate::spanner::DynamicSpanner::new(0),
+            tree_chain: None,
+            rebuild_game: RebuildGame::new(max_instability as f64, 1.5),
+            amortized: AmortizedTracker::new(),
             last_gradients: Vec::new(),
             last_lengths: Vec::new(),
             last_edge_count: 0,
@@ -163,6 +173,7 @@ impl FullDynamicOracle {
             gradient_change: 0.5,
             length_factor: 1.25,
             instability_exponent: 0.1,
+            high_flow_threshold: 1.0,
         }
     }
 
@@ -178,6 +189,20 @@ impl FullDynamicOracle {
         self.spanner = spanner;
         self.last_edge_count = tails.len();
         self.node_count = node_count;
+    }
+
+    fn rebuild_tree_chain(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        seed: u64,
+    ) -> Result<(), TreeError> {
+        let tree = LowStretchTree::build_low_stretch(node_count, tails, heads, lengths, seed)?;
+        let chain = TreeChain::new(tree, tails, heads, 3, 8);
+        self.tree_chain = Some(chain);
+        Ok(())
     }
 
     fn ensure_spanner(&mut self, node_count: usize, tails: &[u32], heads: &[u32]) {
@@ -216,11 +241,13 @@ impl FullDynamicOracle {
         {
             if (g - prev_g).abs() > self.gradient_change {
                 instability += 1;
+                self.amortized.record_update();
             }
             if prev_l > 0.0 && l > 0.0 {
                 let ratio = if l > prev_l { l / prev_l } else { prev_l / l };
                 if ratio > self.length_factor {
                     instability += 1;
+                    self.amortized.record_update();
                 }
             }
         }
@@ -229,6 +256,30 @@ impl FullDynamicOracle {
         }
         self.last_gradients = gradients.to_vec();
         self.last_lengths = lengths.to_vec();
+    }
+
+    fn record_adversary_update(&mut self, instability: usize) -> bool {
+        self.rebuild_game.record_update(instability as f64);
+        if self.rebuild_game.should_rebuild() {
+            self.rebuild_game.on_rebuild();
+            return true;
+        }
+        false
+    }
+
+    pub fn identify_high_flow_edges(&self, gradients: &[f64], lengths: &[f64]) -> Vec<usize> {
+        gradients
+            .iter()
+            .zip(lengths.iter())
+            .enumerate()
+            .filter_map(|(edge_id, (&g, &l))| {
+                if l > 0.0 && (g.abs() / l) >= self.high_flow_threshold {
+                    Some(edge_id)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn best_cycle(
@@ -240,11 +291,24 @@ impl FullDynamicOracle {
         gradients: &[f64],
         lengths: &[f64],
     ) -> Result<Option<CycleCandidate>, TreeError> {
+        self.amortized.record_query();
         self.ensure_spanner(node_count, tails, heads);
         self.refresh_spanner_values(gradients, lengths);
         self.hierarchy
             .update_instability_threshold(tails.len(), self.instability_exponent);
         self.record_updates(gradients, lengths);
+        if self
+            .tree_chain
+            .as_ref()
+            .map(|chain| chain.tree.parent.len() != node_count)
+            .unwrap_or(true)
+        {
+            self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
+        }
+        if self.record_adversary_update(self.hierarchy.levels.len()) {
+            self.rebuild_spanner(node_count, tails, heads);
+            self.rebuild_tree_chain(node_count, tails, heads, lengths, self.hierarchy.seed)?;
+        }
         let query = OracleQuery {
             iter,
             node_count,
@@ -289,6 +353,18 @@ impl FullDynamicOracle {
                     denominator,
                     cycle_edges: expanded,
                 });
+            }
+        }
+
+        if let Some(chain) = self.tree_chain.as_ref() {
+            if let Some(chain_best) = chain.approx_best_cycle(tails, heads, gradients, lengths) {
+                let current_score = best
+                    .as_ref()
+                    .map(|best| best.ratio)
+                    .unwrap_or(f64::INFINITY);
+                if chain_best.ratio < current_score {
+                    best = Some(chain_best);
+                }
             }
         }
 
@@ -362,6 +438,197 @@ impl FullDynamicOracle {
             return None;
         }
         Some((numerator, denominator))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeChain {
+    pub tree: LowStretchTree,
+    pub off_tree_edges: Vec<usize>,
+    pub sample_size: usize,
+    pub max_off_tree: usize,
+}
+
+impl TreeChain {
+    pub fn new(
+        tree: LowStretchTree,
+        tails: &[u32],
+        heads: &[u32],
+        sample_size: usize,
+        max_off_tree: usize,
+    ) -> Self {
+        let off_tree_edges = collect_off_tree_edges(&tree, tails, heads, max_off_tree);
+        Self {
+            tree,
+            off_tree_edges,
+            sample_size: sample_size.max(1),
+            max_off_tree: max_off_tree.max(1),
+        }
+    }
+
+    pub fn refresh(&mut self, tree: LowStretchTree, tails: &[u32], heads: &[u32]) {
+        self.tree = tree;
+        self.off_tree_edges = collect_off_tree_edges(&self.tree, tails, heads, self.max_off_tree);
+    }
+
+    pub fn approx_best_cycle(
+        &self,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) -> Option<CycleCandidate> {
+        let mut best: Option<CycleCandidate> = None;
+        let mut count = 0;
+        for &edge_id in &self.off_tree_edges {
+            if count >= self.sample_size {
+                break;
+            }
+            if let Some(candidate) =
+                super::score_edge_cycle(&self.tree, edge_id, tails, heads, gradients, lengths)
+            {
+                best = Some(match best.take() {
+                    Some(prev) => select_better_candidate(prev, candidate),
+                    None => candidate,
+                });
+                count += 1;
+            }
+        }
+        best
+    }
+
+    pub fn cycle_union_edges(
+        &self,
+        edges: &[usize],
+        tails: &[u32],
+        heads: &[u32],
+    ) -> Option<Vec<(usize, i8)>> {
+        let mut union = Vec::new();
+        for &edge_id in edges {
+            let cycle = self.tree.fundamental_cycle(edge_id, tails, heads)?;
+            union.extend(cycle);
+        }
+        Some(union)
+    }
+}
+
+fn collect_off_tree_edges(
+    tree: &LowStretchTree,
+    tails: &[u32],
+    _heads: &[u32],
+    max_off_tree: usize,
+) -> Vec<usize> {
+    let mut off_tree = Vec::new();
+    for edge_id in 0..tails.len() {
+        if !tree.tree_edges[edge_id] {
+            off_tree.push(edge_id);
+        }
+        if off_tree.len() >= max_off_tree {
+            break;
+        }
+    }
+    off_tree
+}
+
+#[derive(Debug, Clone)]
+pub struct CycleRouter {
+    pub stretch_bound: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RoutedCycle {
+    pub total_length: f64,
+    pub edge_count: usize,
+    pub within_bound: bool,
+}
+
+impl CycleRouter {
+    pub fn new(stretch_bound: f64) -> Self {
+        Self {
+            stretch_bound: stretch_bound.max(1.0),
+        }
+    }
+
+    pub fn route_cycle(&self, cycle_edges: &[(usize, i8)], lengths: &[f64]) -> Option<RoutedCycle> {
+        if cycle_edges.is_empty() {
+            return None;
+        }
+        let mut total_length = 0.0;
+        let mut base_length = 0.0;
+        for &(edge_id, _) in cycle_edges {
+            let length = lengths.get(edge_id)?.abs();
+            total_length += length;
+            if length > base_length {
+                base_length = length;
+            }
+        }
+        let bound = self.stretch_bound * base_length;
+        Some(RoutedCycle {
+            total_length,
+            edge_count: cycle_edges.len(),
+            within_bound: total_length <= bound,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RebuildGame {
+    budget: f64,
+    growth: f64,
+    score: f64,
+    rebuilds: usize,
+}
+
+impl RebuildGame {
+    pub fn new(budget: f64, growth: f64) -> Self {
+        Self {
+            budget: budget.max(1.0),
+            growth: growth.max(1.0),
+            score: 0.0,
+            rebuilds: 0,
+        }
+    }
+
+    pub fn record_update(&mut self, amount: f64) {
+        self.score += amount.max(0.0);
+    }
+
+    pub fn should_rebuild(&self) -> bool {
+        self.score >= self.budget
+    }
+
+    pub fn on_rebuild(&mut self) {
+        self.rebuilds += 1;
+        self.score = 0.0;
+        self.budget *= self.growth;
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AmortizedTracker {
+    updates: usize,
+    queries: usize,
+}
+
+impl AmortizedTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record_update(&mut self) {
+        self.updates += 1;
+    }
+
+    pub fn record_query(&mut self) {
+        self.queries += 1;
+    }
+
+    pub fn amortized_updates_per_query(&self) -> f64 {
+        if self.queries == 0 {
+            0.0
+        } else {
+            self.updates as f64 / self.queries as f64
+        }
     }
 }
 
@@ -618,5 +885,75 @@ mod tests {
         .expect("metrics should exist");
         assert!((metrics.0 - 4.0).abs() < 1e-9);
         assert!((metrics.1 - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tree_chain_returns_best_cycle() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let gradients = vec![1.0, -2.0, 0.5, -3.0];
+        let lengths = vec![1.0, 2.0, 1.0, 3.0];
+        let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 2).unwrap();
+        let chain = TreeChain::new(tree, &tails, &heads, 2, 4);
+        let candidate = chain
+            .approx_best_cycle(&tails, &heads, &gradients, &lengths)
+            .expect("candidate should exist");
+        assert!(!candidate.cycle_edges.is_empty());
+    }
+
+    #[test]
+    fn tree_chain_cycle_union_collects_edges() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let lengths = vec![1.0, 2.0, 1.0, 3.0];
+        let tree = LowStretchTree::build_low_stretch(3, &tails, &heads, &lengths, 6).unwrap();
+        let chain = TreeChain::new(tree, &tails, &heads, 2, 4);
+        let edges = chain.off_tree_edges.clone();
+        let union = chain
+            .cycle_union_edges(&edges, &tails, &heads)
+            .expect("union should exist");
+        assert!(!union.is_empty());
+    }
+
+    #[test]
+    fn cycle_router_checks_length_bounds() {
+        let lengths = vec![1.0, 2.0, 3.0];
+        let router = CycleRouter::new(2.0);
+        let routed = router
+            .route_cycle(&[(0, 1), (1, -1), (2, 1)], &lengths)
+            .expect("routed should exist");
+        assert!(routed.within_bound);
+        assert_eq!(routed.edge_count, 3);
+    }
+
+    #[test]
+    fn rebuild_game_triggers_and_resets() {
+        let mut game = RebuildGame::new(3.0, 2.0);
+        game.record_update(1.0);
+        assert!(!game.should_rebuild());
+        game.record_update(2.0);
+        assert!(game.should_rebuild());
+        game.on_rebuild();
+        assert!(!game.should_rebuild());
+    }
+
+    #[test]
+    fn amortized_tracker_counts_updates_and_queries() {
+        let mut tracker = AmortizedTracker::new();
+        tracker.record_update();
+        tracker.record_update();
+        tracker.record_query();
+        tracker.record_query();
+        assert!((tracker.amortized_updates_per_query() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn high_flow_edges_respect_threshold() {
+        let mut oracle = FullDynamicOracle::new(3, 1, 1, 1, 0.0);
+        oracle.high_flow_threshold = 0.5;
+        let gradients = vec![1.0, 0.1, 2.0];
+        let lengths = vec![1.0, 1.0, 10.0];
+        let high_flow = oracle.identify_high_flow_edges(&gradients, &lengths);
+        assert_eq!(high_flow, vec![0]);
     }
 }

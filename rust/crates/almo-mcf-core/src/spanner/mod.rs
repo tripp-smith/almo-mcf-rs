@@ -61,6 +61,20 @@ pub struct SpannerHierarchy {
     pub instability: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct SpannerMaintenance {
+    pub spanner: DynamicSpanner,
+    pub max_edges: usize,
+    pub rebuild_every: usize,
+    pending_updates: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecursiveHierarchy {
+    pub levels: Vec<SpannerLevel>,
+    pub vertex_maps: Vec<Vec<usize>>,
+}
+
 impl SpannerHierarchy {
     pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
         let SpannerBuildParams {
@@ -527,6 +541,182 @@ impl DynamicSpanner {
     }
 }
 
+impl SpannerMaintenance {
+    pub fn new(node_count: usize, max_edges: usize, rebuild_every: usize) -> Self {
+        Self {
+            spanner: DynamicSpanner::new(node_count),
+            max_edges: max_edges.max(1),
+            rebuild_every: rebuild_every.max(1),
+            pending_updates: 0,
+        }
+    }
+
+    pub fn insert_edge_with_values(
+        &mut self,
+        u: usize,
+        v: usize,
+        length: f64,
+        gradient: f64,
+    ) -> usize {
+        let edge_id = self.spanner.insert_edge_with_values(u, v, length, gradient);
+        self.pending_updates += 1;
+        self.maintain();
+        edge_id
+    }
+
+    pub fn delete_edge(&mut self, edge_id: usize) -> bool {
+        let deleted = self.spanner.delete_edge(edge_id);
+        if deleted {
+            self.pending_updates += 1;
+            self.maintain();
+        }
+        deleted
+    }
+
+    pub fn update_edge_values(&mut self, edge_id: usize, length: f64, gradient: f64) -> bool {
+        let updated = self.spanner.update_edge_values(edge_id, length, gradient);
+        if updated {
+            self.pending_updates += 1;
+            self.maintain();
+        }
+        updated
+    }
+
+    pub fn maintain(&mut self) {
+        if self.pending_updates == 0 {
+            return;
+        }
+        if self.pending_updates < self.rebuild_every && self.spanner.edge_count <= self.max_edges {
+            return;
+        }
+        self.prune_to_max_edges();
+        self.refresh_embeddings();
+        self.pending_updates = 0;
+    }
+
+    fn prune_to_max_edges(&mut self) {
+        if self.spanner.edge_count <= self.max_edges {
+            return;
+        }
+        let mut active_edges: Vec<usize> = self
+            .spanner
+            .edges
+            .iter()
+            .enumerate()
+            .filter_map(|(edge_id, edge)| edge.active.then_some(edge_id))
+            .collect();
+        active_edges.sort_unstable();
+        let excess = active_edges.len().saturating_sub(self.max_edges);
+        for edge_id in active_edges.into_iter().rev().take(excess) {
+            self.spanner.delete_edge(edge_id);
+        }
+    }
+
+    fn refresh_embeddings(&mut self) {
+        self.spanner
+            .embeddings
+            .retain(|edge_id, _| self.spanner.edges.get(*edge_id).is_some());
+        for edge_id in 0..self.spanner.edges.len() {
+            if self.spanner.edges[edge_id].active {
+                self.spanner
+                    .set_embedding(edge_id, vec![EmbeddingStep::new(edge_id, 1)]);
+            }
+        }
+    }
+}
+
+impl RecursiveHierarchy {
+    pub fn build(params: SpannerBuildParams<'_>, cluster_ratio: usize) -> Option<Self> {
+        let mut levels = Vec::new();
+        let mut vertex_maps = Vec::new();
+        let mut node_count = params.node_count;
+        let mut tails = params.tails.to_vec();
+        let mut heads = params.heads.to_vec();
+        let mut lengths = params.lengths.to_vec();
+        for level in 0..params.levels.max(1) {
+            let tree = LowStretchTree::build_low_stretch(
+                node_count,
+                &tails,
+                &heads,
+                &lengths,
+                params.seed + level as u64,
+            )
+            .ok()?;
+            let mut spanner = DynamicSpanner::new(node_count);
+            for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+                spanner.insert_edge_with_values(
+                    tail as usize,
+                    head as usize,
+                    lengths[edge_id],
+                    0.0,
+                );
+                spanner.set_embedding(edge_id, vec![EmbeddingStep::new(edge_id, 1)]);
+            }
+            levels.push(SpannerLevel { spanner, tree });
+            let map = compress_vertices(
+                node_count,
+                levels.last().unwrap().tree.root.clone(),
+                cluster_ratio,
+            );
+            vertex_maps.push(map.clone());
+            if level + 1 == params.levels {
+                break;
+            }
+            let (new_tails, new_heads, new_lengths, new_node_count) =
+                compress_edges(&map, &tails, &heads, &lengths);
+            tails = new_tails;
+            heads = new_heads;
+            lengths = new_lengths;
+            node_count = new_node_count;
+        }
+        Some(Self {
+            levels,
+            vertex_maps,
+        })
+    }
+}
+
+fn compress_vertices(node_count: usize, roots: Vec<usize>, cluster_ratio: usize) -> Vec<usize> {
+    let ratio = cluster_ratio.max(1);
+    let mut map = vec![0; node_count];
+    for (node, root) in roots.into_iter().enumerate().take(node_count) {
+        map[node] = root / ratio;
+    }
+    map
+}
+
+fn compress_edges(
+    map: &[usize],
+    tails: &[u32],
+    heads: &[u32],
+    lengths: &[f64],
+) -> (Vec<u32>, Vec<u32>, Vec<f64>, usize) {
+    let mut edge_map: HashMap<(usize, usize), f64> = HashMap::new();
+    let mut max_node = 0;
+    for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+        let u = map[tail as usize];
+        let v = map[head as usize];
+        if u == v {
+            continue;
+        }
+        max_node = max_node.max(u.max(v));
+        let key = if u <= v { (u, v) } else { (v, u) };
+        let entry = edge_map.entry(key).or_insert(f64::INFINITY);
+        if lengths[edge_id] < *entry {
+            *entry = lengths[edge_id];
+        }
+    }
+    let mut new_tails = Vec::new();
+    let mut new_heads = Vec::new();
+    let mut new_lengths = Vec::new();
+    for ((u, v), length) in edge_map {
+        new_tails.push(u as u32);
+        new_heads.push(v as u32);
+        new_lengths.push(length);
+    }
+    (new_tails, new_heads, new_lengths, max_node + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,5 +908,39 @@ mod tests {
         hierarchy.apply_updates(&updates, 0.1, 1.1);
         assert!(hierarchy.should_rebuild());
         assert!(hierarchy.tick(4, 2));
+    }
+
+    #[test]
+    fn maintenance_prunes_and_refreshes_embeddings() {
+        let mut maintenance = SpannerMaintenance::new(4, 2, 2);
+        let e0 = maintenance.insert_edge_with_values(0, 1, 1.0, 0.1);
+        let _e1 = maintenance.insert_edge_with_values(1, 2, 1.0, 0.2);
+        let _e2 = maintenance.insert_edge_with_values(2, 3, 1.0, 0.3);
+        maintenance.maintain();
+        assert!(maintenance.spanner.edge_count <= 2);
+        assert!(maintenance.spanner.embedding_valid(e0));
+    }
+
+    #[test]
+    fn recursive_hierarchy_reduces_vertices() {
+        let tails = vec![0, 1, 2, 3];
+        let heads = vec![1, 2, 3, 0];
+        let lengths = vec![1.0, 1.0, 1.0, 1.0];
+        let hierarchy = RecursiveHierarchy::build(
+            SpannerBuildParams {
+                node_count: 4,
+                tails: &tails,
+                heads: &heads,
+                lengths: &lengths,
+                seed: 5,
+                levels: 2,
+                rebuild_every: 2,
+                instability_budget: 1,
+            },
+            2,
+        )
+        .unwrap();
+        assert_eq!(hierarchy.levels.len(), 2);
+        assert!(hierarchy.vertex_maps[1].iter().max().unwrap() < &4);
     }
 }
