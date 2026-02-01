@@ -1,3 +1,5 @@
+# Phase I
+
 ### 1. Integrate IPM and Min-Ratio Cycle Solver
 
 - [x] Implement the potential function Φ(f) (Eq. 3 in paper) in Rust core, including power barrier x^{-α} with α = 1/(1000 log mU)
@@ -47,3 +49,54 @@
 - [x] Add CONTRIBUTING.md: Guidelines for issues/PRs
 - [x] Monitor for scalability: Test on m=10^5+ graphs, fix any memory/time issues
 - [x] Solicit feedback: Add issue templates for bugs/feature requests aligned with paper
+
+# Phase II
+
+### 1. Review and Integrate Derandomization Framework
+
+- [ ] Read and annotate the paper (arXiv:2309.16629) for key sections on derandomization, comparing to the original randomized framework in arXiv:2203.00671
+- [ ] Update DESIGN_SPEC.md to include deterministic variants, highlighting differences in vertex and edge sparsification
+- [ ] Modify IPM loop to support deterministic cycle finding, ensuring compatibility with existing randomized paths
+
+### 2. Implement Deterministic Vertex Sparsification
+
+- [ ] Replace random tree sampling with deterministic hierarchical graph decomposition for vertex reduction
+- [ ] Implement recursive decomposition algorithm to preserve connectivity for min-ratio cycle detection
+- [ ] Add support for subpolynomial amortized updates in the decomposition structure
+- [ ] Test vertex sparsification on small graphs for determinism and correctness against randomized version
+
+### 3. Implement Deterministic Dynamic Spanner for Edge Sparsification
+
+- [ ] Develop dynamic spanner data structure to maintain sparse supergraph embeddings under edge insertions/deletions
+- [ ] Ensure spanner preserves approximate distances with subpolynomial stretch
+- [ ] Integrate amortized m^{o(1)} time per update for edge changes
+- [ ] Verify spanner on dynamic graphs, comparing memory and time to original randomized spanner
+
+### 4. Enhance Dynamic Data Structures for Determinism
+
+- [ ] Adapt tree-chain maintenance to use deterministic low-stretch spanning trees
+- [ ] Implement fully dynamic low-stretch spanning tree with subpolynomial average stretch and update time
+- [ ] Update circulation routing and min-ratio cycle finder to work with deterministic components
+- [ ] Ensure handling of non-oblivious adversaries via deterministic rebuilding strategies
+
+### 5. Update Core Solver and API
+
+- [ ] Wire deterministic path as optional/default in Rust core and Python API (e.g., flag for deterministic vs. randomized)
+- [ ] Add support for polynomially bounded edge lengths in dynamic trees
+- [ ] Implement max-flow and min-cost flow using the deterministic algorithm, verifying m^{1+o(1)} time bounds theoretically
+
+### 6. Testing and Validation
+
+- [ ] Expand tests to include deterministic-specific cases, ensuring reproducibility (no randomness variance)
+- [ ] Add benchmarks comparing deterministic vs. randomized versions on varying graph sizes
+- [ ] Validate against original paper's theorems (e.g., main result for exact flows)
+- [ ] Test stability guarantees from IPM with deterministic updates
+
+### 7. Documentation and Deployment
+
+- [ ] Update README to document deterministic enhancements, usage flags, and performance claims
+- [ ] Expand docs/ with notes on derandomization techniques and pseudocode adaptations
+- [ ] Update TODO.md to track integration progress and mark related items
+- [ ] Reference the derandomization paper (arXiv:2309.16629) in README.md, adding it to the References section
+- [ ] Build and test updated PyPI package with deterministic features
+- [ ] Publish release with deterministic support, including changelog highlighting improvements
