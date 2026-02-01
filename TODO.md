@@ -81,9 +81,9 @@
 
 ### 5. Update Core Solver and API
 
-- [ ] Wire deterministic path as optional/default in Rust core and Python API (e.g., flag for deterministic vs. randomized)
-- [ ] Add support for polynomially bounded edge lengths in dynamic trees
-- [ ] Implement max-flow and min-cost flow using the deterministic algorithm, verifying m^{1+o(1)} time bounds theoretically
+- [x] Wire deterministic path as optional/default in Rust core and Python API (e.g., flag for deterministic vs. randomized)
+- [x] Add support for polynomially bounded edge lengths in dynamic trees
+- [x] Implement max-flow and min-cost flow using the deterministic algorithm, verifying m^{1+o(1)} time bounds theoretically
 
 ### 6. Testing and Validation
 

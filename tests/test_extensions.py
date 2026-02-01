@@ -58,7 +58,9 @@ def test_max_flow_via_min_cost_circulation_matches_networkx():
     graph.add_edge("a", "t", capacity=2)
     graph.add_edge("s", "t", capacity=1)
 
-    max_flow_value, _flow = max_flow_via_min_cost_circulation(graph, "s", "t")
+    max_flow_value, _flow = max_flow_via_min_cost_circulation(
+        graph, "s", "t", deterministic=True
+    )
     nx_value = nx.maximum_flow_value(graph, "s", "t")
     assert max_flow_value == nx_value
 

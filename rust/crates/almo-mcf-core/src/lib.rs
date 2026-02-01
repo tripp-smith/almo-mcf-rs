@@ -68,7 +68,7 @@ impl Default for McfOptions {
             alpha: None,
             use_ipm: None,
             approx_factor: 0.1,
-            deterministic: false,
+            deterministic: true,
         }
     }
 }

@@ -31,6 +31,24 @@ impl DynamicTreeConfig {
     }
 }
 
+fn polynomial_length_bounds(node_count: usize) -> (f64, f64) {
+    let node_count = node_count.max(1) as f64;
+    let max_length = node_count.powi(4).max(1.0);
+    let min_length = 1.0 / max_length;
+    (min_length, max_length)
+}
+
+fn clamp_polynomial_length(node_count: usize, length: f64) -> f64 {
+    let (min_length, max_length) = polynomial_length_bounds(node_count);
+    let length = length.abs();
+    let length = if length.is_finite() {
+        length
+    } else {
+        max_length
+    };
+    length.clamp(min_length, max_length)
+}
+
 #[derive(Debug, Clone)]
 pub struct DynamicTree {
     pub node_count: usize,
@@ -73,6 +91,10 @@ impl DynamicTree {
         lengths: Vec<f64>,
         config: DynamicTreeConfig,
     ) -> Result<Self, TreeError> {
+        let lengths: Vec<f64> = lengths
+            .into_iter()
+            .map(|length| clamp_polynomial_length(node_count, length))
+            .collect();
         let edge_count = lengths.len();
         let tree = LowStretchTree::build_low_stretch_with_mode(
             node_count,
@@ -118,7 +140,8 @@ impl DynamicTree {
     pub fn insert_edge(&mut self, tail: u32, head: u32, length: f64) {
         self.tails.push(tail);
         self.heads.push(head);
-        self.lengths.push(length);
+        self.lengths
+            .push(clamp_polynomial_length(self.node_count, length));
         self.active.push(true);
         self.update_count += 1;
     }
@@ -140,17 +163,18 @@ impl DynamicTree {
             return false;
         };
         self.update_count = self.update_count.saturating_add(1);
-        if *current > 0.0 && length > 0.0 {
-            let ratio = if length > *current {
-                length / *current
+        let bounded = clamp_polynomial_length(self.node_count, length);
+        if *current > 0.0 && bounded > 0.0 {
+            let ratio = if bounded > *current {
+                bounded / *current
             } else {
-                *current / length
+                *current / bounded
             };
             if ratio > self.length_factor {
                 self.update_count = self.update_count.saturating_add(1);
             }
         }
-        *current = length;
+        *current = bounded;
         true
     }
 
@@ -215,7 +239,10 @@ impl DynamicTree {
             self.node_count = node_count;
             self.tails = tails.to_vec();
             self.heads = heads.to_vec();
-            self.lengths = lengths.to_vec();
+            self.lengths = lengths
+                .iter()
+                .map(|&length| clamp_polynomial_length(node_count, length))
+                .collect();
             self.active = vec![true; lengths.len()];
             self.update_count = self.update_budget.max(1);
         } else {
@@ -260,5 +287,17 @@ mod tests {
             .unwrap();
         assert!(rebuilt);
         assert_eq!(tree.tree.parent.len(), 3);
+    }
+
+    #[test]
+    fn polynomial_bounds_clamp_lengths() {
+        let tails = vec![0];
+        let heads = vec![1];
+        let lengths = vec![1e9];
+        let mut tree = DynamicTree::new(2, tails, heads, lengths, 1, 4, 2).unwrap();
+        let (min_len, max_len) = polynomial_length_bounds(2);
+        assert!((tree.lengths[0] - max_len).abs() < 1e-9);
+        tree.update_length(0, 1e-12);
+        assert!((tree.lengths[0] - min_len).abs() < 1e-9);
     }
 }
