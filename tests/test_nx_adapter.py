@@ -13,11 +13,17 @@ def test_graph_requires_directed():
         almo_nx._graph_to_arrays(graph)
 
 
-def test_graph_rejects_multidigraph():
+def test_graph_accepts_multidigraph():
     graph = nx.MultiDiGraph()
-    graph.add_edge("a", "b", capacity=1)
-    with pytest.raises(ValueError, match="MultiDiGraph"):
-        almo_nx._graph_to_arrays(graph)
+    graph.add_edge("a", "b", capacity=1, weight=2)
+    graph.add_edge("a", "b", capacity=3, weight=4)
+    tails, heads, lower, upper, cost, demand, index, edges = almo_nx._graph_to_arrays(
+        graph
+    )
+    assert len(edges) == 2
+    assert tails == [index["a"], index["a"]]
+    assert heads == [index["b"], index["b"]]
+    assert cost == [2, 4]
 
 
 def test_missing_capacity_is_error():

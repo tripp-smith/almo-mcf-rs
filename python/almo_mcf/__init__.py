@@ -13,7 +13,30 @@ Example:
 """
 
 from ._version import __version__
+from .extensions import (
+    bipartite_min_cost_matching,
+    find_negative_cycle,
+    gomory_hu_tree,
+    isotonic_regression_dag,
+    max_flow_via_min_cost_circulation,
+    min_cost_flow_convex,
+    sparsest_cut,
+    vertex_connectivity,
+)
 from .nx import min_cost_flow, min_cost_flow_cost
 from .typing import FlowDict
 
-__all__ = ["FlowDict", "min_cost_flow", "min_cost_flow_cost", "__version__"]
+__all__ = [
+    "FlowDict",
+    "bipartite_min_cost_matching",
+    "find_negative_cycle",
+    "gomory_hu_tree",
+    "isotonic_regression_dag",
+    "max_flow_via_min_cost_circulation",
+    "min_cost_flow",
+    "min_cost_flow_convex",
+    "min_cost_flow_cost",
+    "sparsest_cut",
+    "vertex_connectivity",
+    "__version__",
+]

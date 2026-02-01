@@ -21,13 +21,13 @@
 
 ### 3. Handle Edge Cases and Extensions
 
-- [ ] Add capacity/cost scaling reductions to poly(m) bounded U/C
-- [ ] Implement max-flow reduction to min-cost circulation (add t→s edge)
-- [ ] Support MultiDiGraph in NetworkX adapter
-- [ ] Add general convex objectives (edge-separable cost(f) = ∑_e cost_e(f_e), e.g., p-norms, entropy-regularized OT, matrix scaling)
-- [ ] Implement applications: Bipartite matching, negative cycle detection, vertex connectivity, Gomory-Hu trees, sparsest cuts
-- [ ] Handle directed acyclic graphs (DAGs) for isotonic regression
-- [ ] Add error handling for invalid inputs (e.g., sum demands ≠ 0, infinite capacities)
+- [x] Add capacity/cost scaling reductions to poly(m) bounded U/C
+- [x] Implement max-flow reduction to min-cost circulation (add t→s edge)
+- [x] Support MultiDiGraph in NetworkX adapter
+- [x] Add general convex objectives (edge-separable cost(f) = ∑_e cost_e(f_e), e.g., p-norms, entropy-regularized OT, matrix scaling)
+- [x] Implement applications: Bipartite matching, negative cycle detection, vertex connectivity, Gomory-Hu trees, sparsest cuts
+- [x] Handle directed acyclic graphs (DAGs) for isotonic regression
+- [x] Add error handling for invalid inputs (e.g., sum demands ≠ 0, infinite capacities)
 
 ### 4. Optimization, Testing, and Documentation
 
