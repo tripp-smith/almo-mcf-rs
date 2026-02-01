@@ -1,280 +1,49 @@
-### Phase 1: Foundational Components
-
-**Complete the graph module (rust/crates/almo-mcf-core/src/graph)**  
-- [x] Define basic directed graph struct with nodes (demands) and edges (capacity lower/upper, cost, reverse edge ref)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or new .rs file (e.g., graph.rs).  
-  Verification: Not implemented. Repo browse shows the graph directory exists but content is insufficient/described as scaffolded; no detailed structs for MCF-specific graph in current classic solver.  
-
-- [x] Implement node/edge ID mapping and iterators (incoming/outgoing edges per node)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or graph.rs.  
-  Verification: Not implemented. Basic graph ops may exist partially in lib.rs for residual graphs, but no advanced ID mappings or iterators per browse.  
-
-- [x] Add residual graph view (forward/backward edges based on current flow)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or residual.rs.  
-  Verification: Partially implemented in lib.rs for classic solver (Bellman-Ford on residuals), but not as a modular view; needs expansion for IPM.  
-
-- [x] Implement incidence matrix builder (sparse B matrix representation if needed for numerics)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or matrix.rs.  
-  Verification: Not implemented. No mention of incidence matrix in browsed content.  
-
-- [x] Add feasibility check: sum demands = 0, no negative cycles on costs alone  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or utils.rs.  
-  Verification: Not fully implemented. Classic solver in lib.rs handles feasibility via super-source/sink, but no standalone check for negative cycles without flow.  
-
-- [x] Add undirected view helper (ignore directions for cycle finding in min-ratio)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/graph/mod.rs or undirected.rs.  
-  Verification: Not implemented. Required for min-ratio but absent in current scaffold.  
-
-**Complete numerics utilities (rust/crates/almo-mcf-core/src/numerics)**  
-- [x] Set up high-precision f64 wrapper or use f64 with careful epsilon handling  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or precision.rs.  
-  Verification: Not implemented. Directory has barrier.rs (possibly numerical barrier) and mod.rs, but no precision wrappers per browse.  
-
-- [x] Implement vector operations: dot product, ℓ1 norm, ℓ2 norm, scaled addition  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or vec_ops.rs.  
-  Verification: Not implemented. No vector ops detailed; current solver uses basic numerics in lib.rs.  
-
-- [x] Add safe log/exp functions with overflow protection for barrier terms  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/barrier.rs.  
-  Verification: Not implemented. barrier.rs exists but content insufficient; likely stub without safe math funcs.  
-
-- [x] Implement gradient proxy computation (g_e = c_e + μ (1/(u_e - f_e) - 1/f_e) or similar)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs or gradient.rs.  
-  Verification: Not implemented. No gradient computation in browsed numerics.  
-
-- [x] Add tolerance constants and duality-gap proxy function  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/numerics/mod.rs.  
-  Verification: Not implemented. Tolerances may be hardcoded in lib.rs, but no proxies.  
-
-- [x] Write unit tests for numerical stability on small vectors  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/tests/numerics.rs or similar (but tests are in root/tests, Python-focused).  
-  Verification: Not implemented. Tests exist for stability (test_numerical_stability.py), but Rust-side units absent.  
-
-### Phase 2: Core Algorithm Components
-
-**Implement potential-reduction IPM core (rust/crates/almo-mcf-core/src/ipm)**  
-- [x] Define Potential struct with log barrier and cost-gap terms (α = 1/(1000 log(mU)))  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or rust/crates/almo-mcf-core/src/ipm/potential.rs.  
-  Verification: Implemented.
-
-- [x] Implement initial strictly feasible flow finder (use classic successive shortest paths as bootstrap)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or init.rs.  
-  Verification: Implemented.
-
-- [x] Write function to compute current gradient vector g(f) and edge lengths ℓ_e(f)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or gradient.rs.  
-  Verification: Implemented.
-
-- [x] Implement main IPM iteration loop skeleton (while gap > tol { find direction; line search; update })  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs.  
-  Verification: Implemented.
-
-- [x] Add line-search function (Armijo or simple fraction scaling to stay feasible)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs or rust/crates/almo-mcf-core/src/ipm/search.rs.  
-  Verification: Implemented.
-
-- [x] Implement termination check (duality gap proxy < ε)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/ipm/mod.rs.  
-  Verification: Implemented.
-
-- [x] Write basic integration test on tiny MCF instance (e.g., 3-node example)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/tests/ipm.rs or root/tests/test_correctness_small.py (expand).  
-  Verification: Implemented.
-
-**Implement undirected min-ratio cycle subproblem (rust/crates/almo-mcf-core/src/min_ratio)**  
-- [x] Define MinRatioOracle trait or struct that takes g, ℓ and returns approx min-ratio circulation  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs or oracle.rs.  
-  Verification: Implemented.
-
-- [x] Implement static version: sample low-stretch tree → enumerate fundamental cycles  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/static_oracle.rs.  
-  Verification: Implemented.
-
-- [x] Add cycle evaluation: compute reduced cost g^T Δ and normalized length ||L Δ||_1  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs.  
-  Verification: Implemented.
-
-- [x] Implement approximate solver (target m^{o(1)} accuracy, e.g., via top-k cycles)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/mod.rs.  
-  Verification: Implemented.
-
-- [x] Add warm-start support (cache previous tree or spanner across IPM steps)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/min_ratio/dynamic.rs.  
-  Verification: Implemented.
-
-- [x] Write test: verify ratio on hand-crafted negative-ratio cycle  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/tests/min_ratio.rs.  
-  Verification: Implemented.
-
-**Implement rounding to exact optimum (rust/crates/almo-mcf-core/src/rounding)**  
-- [x] Implement residual graph extractor from fractional flow  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs or residual.rs.  
-  Verification: Implemented.
-
-- [x] Add cycle-canceling step on residual graph to reach integral flow (small number of augmentations)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Implemented.
-
-- [x] Ensure cost monotonicity during rounding (only augment along negative reduced cost cycles)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Implemented.
-
-- [x] Add final integrality check and cost verification  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/rounding/mod.rs.  
-  Verification: Implemented.
-
-- [x] Write test: round a known fractional optimum to integral on small instance  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/tests/rounding.rs.  
-  Verification: Implemented.
-
-### Phase 3: Dynamic Data Structures
-
-**Implement low-stretch spanning trees (rust/crates/almo-mcf-core/src/trees)**  
-- [x] Implement probabilistic low-stretch tree construction (MST + random sampling or ABP style)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs or lsst.rs.  
-  Verification: Not implemented. Dir has mod.rs but insufficient content.  
-
-- [x] Add tree path query (LCA + distance in tree metric)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs.  
-  Verification: Not implemented.  
-
-- [x] Implement fundamental cycle extractor given tree and off-tree edge  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/mod.rs.  
-  Verification: Not implemented.  
-
-- [x] Add basic dynamic update (edge insertion/deletion with rebuild fallback)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/trees/dynamic.rs.  
-  Verification: Not implemented.  
-
-- [x] Write benchmark on path query time vs graph size  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/benches/trees.rs (benches dir not found at root, likely add to crate benches).  
-  Verification: Not implemented. No benches dir.  
-
-**Implement dynamic spanners and hierarchy (rust/crates/almo-mcf-core/src/spanner)**  
-- [x] Implement recursive tree spanner construction (chain decomposition or hierarchy)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs or construct.rs.  
-  Verification: Not implemented. Insufficient content.  
-
-- [x] Add spanner maintenance across small flow changes (stability-aware rebuild)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs.  
-  Verification: Not implemented.  
-
-- [x] Implement periodic rebuild trigger (every k IPM steps or stretch threshold)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/mod.rs.  
-  Verification: Not implemented.  
-
-- [x] Add flow-chasing oracle using spanner paths for cycle finding  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/spanner/oracle.rs.  
-  Verification: Not implemented.  
-
-- [x] Write integration test with dummy lengths/gradients  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/tests/spanner.rs.  
-  Verification: Not implemented.  
-
-### Phase 4: Integration and API Completion
-
-**Integrate IPM into Rust core solver (rust/crates/almo-mcf-core/src/lib.rs)**  
-- [x] Refactor min_cost_flow_exact to accept McfOptions.strategy  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Not implemented. lib.rs uses classic algorithm; options defined but not used for IPM.  
-
-- [x] Implement IPM branch (call ipm solver when strategy = FullDynamic or PeriodicRebuild)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Not implemented.  
-
-- [x] Wire min-ratio oracle into IPM direction finding  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Not implemented.  
-
-- [x] Add fallback to classic successive shortest paths for debugging/small instances  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Partially implemented (classic is default), but not as fallback.  
-
-- [x] Handle infeasible/unbounded errors consistently  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Partially implemented in classic; needs IPM extension.  
-
-- [x] Update McfSolution to include IPM stats (iterations, final gap)  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs.  
-  Verification: Not implemented.  
-
-**Complete Python public API (python/almo_mcf)**  
-- [x] Create typing.py with type aliases (FlowDict, Cost, Demand, etc.)  
-  Touched Codebase Parts: python/almo_mcf/typing.py (new file).  
-  Verification: Not implemented. File does not exist.  
-
-- [x] Add _version.py with __version__ string  
-  Touched Codebase Parts: python/almo_mcf/_version.py (new file).  
-  Verification: Not implemented. File does not exist.  
-
-- [x] Extend nx.py: implement min_cost_flow() returning flow dict  
-  Touched Codebase Parts: python/almo_mcf/nx.py.  
-  Verification: Partially implemented (exists with validation), but needs full flow dict return if incomplete.  
-
-- [x] Implement min_cost_flow_cost() returning scalar  
-  Touched Codebase Parts: python/almo_mcf/nx.py.  
-  Verification: Partially implemented; exists but tie to IPM.  
-
-- [x] Add low-level array-based API in _core.py (if planned)  
-  Touched Codebase Parts: python/almo_mcf/_core.py (new or extend).  
-  Verification: Not implemented. No _core.py listed.  
-
-- [x] Write example usage in __init__.py docstring  
-  Touched Codebase Parts: python/almo_mcf/__init__.py.  
-  Verification: Partially implemented (__init__.py exists for smoke), but expand docstring.  
-
-### Phase 5: Testing, Performance, and Polish
-
-- [x] Add unit tests for each ipm/min_ratio/rounding/trees/spanner module  
-  Touched Codebase Parts: tests/test_ipm.py, test_min_ratio.py, etc. (or Rust tests in crate).  
-  Verification: Not implemented. Existing tests cover classic (e.g., test_against_networkx.py).  
-
-- [x] Update test_regression_known_instances.py to run new IPM solver  
-  Touched Codebase Parts: tests/test_regression_known_instances.py (not listed, but regression_seeds.py exists; assume similar).  
-  Verification: Not implemented for IPM.  
-
-- [x] Extend test_against_networkx.py with IPM mode and assert cost equality  
-  Touched Codebase Parts: tests/test_against_networkx.py.  
-  Verification: Not implemented for IPM.  
-
-- [x] Add property-based tests (hypothesis) for feasibility preservation  
-  Touched Codebase Parts: tests/test_property_randomized.py (exists; extend).  
-  Verification: Partially implemented; needs IPM focus.  
-
-**Add benchmarks and tuning (benches/)**  
-- [x] Update bench_ipm.rs with realistic graph families  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/benches/bench_ipm.rs (benches dir not found; create).  
-  Verification: Not implemented. No benches dir.  
-
-- [x] Add Python benchmark script comparing IPM vs NetworkX  
-  Touched Codebase Parts: tests/test_benchmarks.py (exists; extend).  
-  Verification: Not implemented for IPM.  
-
-- [x] Tune parameters (threads, rebuild frequency, α constant) via command-line flags  
-  Touched Codebase Parts: rust/crates/almo-mcf-core/src/lib.rs (McfOptions).  
-  Verification: Not implemented. Options exist but not tuned for IPM.  
-
-- [x] Run and record baseline timings on medium instances  
-  Touched Codebase Parts: Documentation or benches output (e.g., README.md).  
-  Verification: Not implemented.  
-
-**Update documentation and release prep**  
-- [x] Update README.md: mark IPM as enabled, add usage examples, remove "scaffold" warnings  
-  Touched Codebase Parts: README.md.  
-  Verification: Implemented: README documents IPM default behavior and tuning examples.  
-
-- [x] Expand docs/math-notes/ with IPM derivation and references  
-  Touched Codebase Parts: docs/math-notes/ (dir exists; files like ipm.md).  
-  Verification: Implemented: math notes now cover derivation details and citations.  
-
-- [x] Verify package name availability on PyPI (almo-mcf)  
-  Touched Codebase Parts: None (external check), but note in README or pyproject.toml.  
-  Verification: Checked https://pypi.org/project/almo-mcf/ (404 returned).  
-
-- [x] Add IPM coverage to .github/workflows CI  
-  Touched Codebase Parts: .github/workflows/ (exists; extend YAML files).  
-  Verification: Implemented: dedicated IPM-focused job added.  
-
-- [x] Tag and release v0.1.0 (or next version) once all checks pass  
-  Touched Codebase Parts: Git tags/releases.  
-  Verification: Implemented: tag created locally after tests pass.
+### 1. Integrate IPM and Min-Ratio Cycle Solver
+
+- [ ] Implement the potential function Φ(f) (Eq. 3 in paper) in Rust core, including power barrier x^{-α} with α = 1/(1000 log mU)
+- [ ] Add gradient g(f) and length ℓ(f) computation to the Rust solver, ensuring bit-complexity bounds (exp(log^{O(1)} m))
+- [ ] Implement the IPM iteration loop: Reduce Φ by m^{-o(1)} per iteration, terminating when Φ ≤ -200m log mU
+- [ ] Integrate min-ratio cycle oracle (min_{B^T Δ=0} g^T Δ / ||L Δ||_1) as a subroutine in Rust, with mo(1) approximation support
+- [ ] Wire IPM as optional/default path in Python API (e.g., flag in min_cost_flow to toggle IPM vs. successive shortest path)
+- [ ] Add rounding to exact optimal flow when c^T f - F^* ≤ (mU)^{-10}
+- [ ] Verify IPM stability lemmas (Lemmas 4.9-4.10) in code via unit tests on small graphs
+
+### 2. Implement Dynamic Data Structures
+
+- [ ] Implement dynamic spanner with embeddings (Theorem 5.1): Maintain subgraph H with Õ(n) edges, explicit path embeddings of length mo(1), amortized mo(1) changes per update
+- [ ] Add low-stretch spanning tree (LST) computation with stretch str_{T,ℓ}^e = Õ(1) in expectation
+- [ ] Build recursive hierarchy: Reduce vertices via partial tree embeddings, edges via spanners
+- [ ] Implement tree-chain maintenance: Support returning mo(1)-approx min-ratio cycles (union of mo(1) off-tree edges + tree paths)
+- [ ] Add circulation routing along cycles (pass circulations through tree-chain with length upper bounds)
+- [ ] Implement approximate min-ratio cycle finder in tree-chain
+- [ ] Handle non-oblivious adversaries: Integrate rebuilding game (analyze game algorithm, dynamic min-ratio using game)
+- [ ] Ensure amortized mo(1) time per update/query (insert/delete edge, update g/ℓ, identify high-flow edges)
+
+### 3. Handle Edge Cases and Extensions
+
+- [ ] Add capacity/cost scaling reductions to poly(m) bounded U/C
+- [ ] Implement max-flow reduction to min-cost circulation (add t→s edge)
+- [ ] Support MultiDiGraph in NetworkX adapter
+- [ ] Add general convex objectives (edge-separable cost(f) = ∑_e cost_e(f_e), e.g., p-norms, entropy-regularized OT, matrix scaling)
+- [ ] Implement applications: Bipartite matching, negative cycle detection, vertex connectivity, Gomory-Hu trees, sparsest cuts
+- [ ] Handle directed acyclic graphs (DAGs) for isotonic regression
+- [ ] Add error handling for invalid inputs (e.g., sum demands ≠ 0, infinite capacities)
+
+### 4. Optimization, Testing, and Documentation
+
+- [ ] Expand pytest suite: Add IPM-specific tests, large-instance regressions, and parity with NetworkX on random graphs
+- [ ] Implement benchmarks: Compare IPM vs. successive shortest path on varying m/n/U/C
+- [ ] Tune performance: Optimize for large instances (parallelize tree computations if possible, reduce constants in mo(1))
+- [ ] Update README: Document IPM usage, examples for extensions, performance claims
+- [ ] Expand DESIGN_SPEC.md: Detail full integration, with code references
+- [ ] Update TODO.md: Mark completed items, add any new gaps found during testing
+- [ ] Add math notes in docs/ for IPM proofs/stability
+
+### 5. Deployment and Maintenance
+
+- [ ] Build and test PyPI package with full IPM
+- [ ] Publish first release on GitHub (tag v0.1.0, include changelog)
+- [ ] Expand CI workflows: Add tests for IPM, linting (rustfmt, clippy), and cross-platform builds
+- [ ] Add CONTRIBUTING.md: Guidelines for issues/PRs
+- [ ] Monitor for scalability: Test on m=10^5+ graphs, fix any memory/time issues
+- [ ] Solicit feedback: Add issue templates for bugs/feature requests aligned with paper
