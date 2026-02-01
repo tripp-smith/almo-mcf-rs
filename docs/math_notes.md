@@ -61,6 +61,23 @@ The best ratio cycle yields a unit circulation `Δ`. We scale `Δ` so
 `||L Δ||₁ = κ/50`, where `κ` is the achieved ratio, then line-search to keep the
 flow strictly feasible and to ensure the potential decreases.
 
+## Stability lemmas and line search safeguards
+
+The stability lemmas (e.g., Lemmas 4.9–4.10 in the paper) justify reusing the
+min-ratio oracle across iterations when the gradients and lengths do not shift
+too much. In the implementation this maps to:
+
+- A stability window and ratio tolerance that decide when to rebuild the
+  low-stretch tree, so repeated iterations can reuse the same tree while the
+  ratio stays within a small band.
+- A conservative step size (bounded by the barrier deltas) so the flow remains
+  strictly interior and the potential is guaranteed to decrease.
+
+Practically, the solver tracks the last ratio and rebuilds if it stays stable
+for too many iterations, or if the ratio changes enough to invalidate the local
+approximation. The line search clamps the update to avoid violating
+`u^- < f < u^+` while still reducing the potential.
+
 ## Termination and rounding to exact optimum
 
 When the potential indicates the primal-dual gap proxy is small, we switch to

@@ -165,6 +165,21 @@ pub fn min_cost_flow_exact(p: &McfProblem, opts: &McfOptions) -> Result<McfSolut
   * `PeriodicRebuild { rebuild_every: usize }` (fallback)
 * `threads: usize` (rayon)
 
+### Implementation map (current code)
+
+The following files anchor the design above to the current implementation:
+
+* IPM driver + option handling: `rust/crates/almo-mcf-core/src/ipm/mod.rs`, `rust/crates/almo-mcf-core/src/lib.rs`.
+* Potential/gradient/lengths: `rust/crates/almo-mcf-core/src/ipm/potential.rs`,
+  `rust/crates/almo-mcf-core/src/numerics/barrier.rs`.
+* Min-ratio oracle + low-stretch tree reduction: `rust/crates/almo-mcf-core/src/min_ratio/mod.rs`,
+  `rust/crates/almo-mcf-core/src/trees/mod.rs`.
+* Dynamic spanner/tree-chain scaffolding: `rust/crates/almo-mcf-core/src/spanner/`,
+  `rust/crates/almo-mcf-core/src/trees/dynamic/`.
+* Rounding to integral optimum: `rust/crates/almo-mcf-core/src/rounding/mod.rs`.
+* Python NetworkX adapter + scaling: `python/almo_mcf/nx.py`.
+* Extensions/reductions (convex costs, max-flow, etc.): `python/almo_mcf/extensions.py`.
+
 ## Data representation and invariants
 
 ### Graph storage
@@ -1158,4 +1173,3 @@ The project is “done” when:
 7. Full dynamic oracle passes parity tests with fallback oracle on small graphs
 
 ---
-

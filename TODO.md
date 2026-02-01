@@ -31,13 +31,13 @@
 
 ### 4. Optimization, Testing, and Documentation
 
-- [ ] Expand pytest suite: Add IPM-specific tests, large-instance regressions, and parity with NetworkX on random graphs
-- [ ] Implement benchmarks: Compare IPM vs. successive shortest path on varying m/n/U/C
-- [ ] Tune performance: Optimize for large instances (parallelize tree computations if possible, reduce constants in mo(1))
-- [ ] Update README: Document IPM usage, examples for extensions, performance claims
-- [ ] Expand DESIGN_SPEC.md: Detail full integration, with code references
-- [ ] Update TODO.md: Mark completed items, add any new gaps found during testing
-- [ ] Add math notes in docs/ for IPM proofs/stability
+- [x] Expand pytest suite: Add IPM-specific tests, large-instance regressions, and parity with NetworkX on random graphs
+- [x] Implement benchmarks: Compare IPM vs. successive shortest path on varying m/n/U/C
+- [x] Tune performance: Optimize for large instances (parallelize tree computations if possible, reduce constants in mo(1))
+- [x] Update README: Document IPM usage, examples for extensions, performance claims
+- [x] Expand DESIGN_SPEC.md: Detail full integration, with code references
+- [x] Update TODO.md: Mark completed items, add any new gaps found during testing
+- [x] Add math notes in docs/ for IPM proofs/stability
 
 ### 5. Deployment and Maintenance
 

@@ -99,7 +99,7 @@ pub fn barrier_lengths(
             threads.min(available)
         }
         .max(1);
-        let chunk_size = (upper_delta.len() + threads - 1) / threads;
+        let chunk_size = upper_delta.len().div_ceil(threads);
         std::thread::scope(|scope| {
             for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
                 let start = chunk_index * chunk_size;
@@ -154,7 +154,7 @@ pub fn barrier_gradient(
             threads.min(available)
         }
         .max(1);
-        let chunk_size = (upper_delta.len() + threads - 1) / threads;
+        let chunk_size = upper_delta.len().div_ceil(threads);
         std::thread::scope(|scope| {
             for (chunk_index, out_chunk) in output.chunks_mut(chunk_size).enumerate() {
                 let start = chunk_index * chunk_size;
