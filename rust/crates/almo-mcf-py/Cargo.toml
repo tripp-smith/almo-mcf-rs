@@ -9,7 +9,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
-almo-mcf-core = { path = "../almo-mcf-core" }
+almo-mcf-core = { path = "../almo-mcf-core", features = ["parallel"] }
 numpy = "0.22"
 pyo3 = { version = "0.22", features = ["extension-module"] }
 

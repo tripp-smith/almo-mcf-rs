@@ -65,20 +65,40 @@ from almo_mcf import min_cost_flow
 
 flow, stats = min_cost_flow(
     G,
+    use_ipm=True,            # force IPM path (set False for classic SSP)
     strategy="periodic_rebuild",
     rebuild_every=25,
     max_iters=250,
     tolerance=1e-9,
     seed=42,
     threads=2,
+    approx_factor=0.2,
     return_stats=True,
 )
 print(stats)
 ```
 
+### Extensions (convex costs, max-flow, isotonic regression)
+
+```python
+import networkx as nx
+from almo_mcf import min_cost_flow_convex, max_flow_via_min_cost_circulation
+
+G = nx.MultiDiGraph()
+G.add_node("s", demand=-2)
+G.add_node("t", demand=2)
+G.add_edge("s", "t", capacity=2, convex_cost=[0, 1, 6])
+G.add_edge("s", "t", capacity=2, convex_cost=[0, 2, 4])
+flow = min_cost_flow_convex(G)
+
+H = nx.DiGraph()
+H.add_edge("s", "t", capacity=5)
+max_flow_value, max_flow = max_flow_via_min_cost_circulation(H, "s", "t")
+```
+
 ### Supported NetworkX attributes
 
-- **Graph type:** `nx.DiGraph` only (no MultiDiGraph yet)
+- **Graph type:** `nx.DiGraph` and `nx.MultiDiGraph`
 - **Node attributes:**
   - `demand` (int)
 - **Edge attributes:**
@@ -111,7 +131,6 @@ Inputs must be integer arrays with consistent lengths.
 
 ## Limitations (current)
 
-- No `MultiDiGraph` support.
 - All capacities must be explicit and finite.
 - Performance is currently tuned for correctness and clarity, not large-scale
   instances.
@@ -131,6 +150,16 @@ tests/                 # pytest suite (NetworkX parity + regressions)
 
 ```bash
 pytest -q
+```
+
+### Benchmarks
+
+There are benchmark scripts that compare IPM vs the classic successive
+shortest-path (SSP) routine across sizes and capacity/cost ranges:
+
+```bash
+python tests/bench_ipm_vs_ssp.py --runs 3 --nodes 30 60 --edges 150 300 --capacity 10 50 --cost 5 20
+python tests/bench_ipm_vs_networkx.py --nodes 60 --edges 300 --runs 3
 ```
 
 ### Build the Rust core

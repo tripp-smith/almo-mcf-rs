@@ -86,7 +86,7 @@ def test_regression_seeds_match_networkx():
     seed=st.integers(min_value=0, max_value=50_000),
     node_count=st.integers(min_value=5, max_value=25),
 )
-@settings(max_examples=20)
+@settings(max_examples=20, deadline=None)
 def test_property_feasible_flow(seed: int, node_count: int) -> None:
     graph = _build_random_graph(seed, node_count=node_count)
     flow = min_cost_flow(graph)

@@ -281,7 +281,10 @@ impl LowStretchTree {
         heads: &[u32],
     ) -> Option<Vec<(usize, i8)>> {
         let lca = self.lca(u, v)?;
-        let mut edges = Vec::new();
+        let path_len = self.depth[u]
+            .saturating_add(self.depth[v])
+            .saturating_sub(2 * self.depth[lca]);
+        let mut edges = Vec::with_capacity(path_len);
         let mut curr = u;
         while curr != lca {
             let edge_id = self.parent_edge[curr];
@@ -291,7 +294,7 @@ impl LowStretchTree {
             curr = parent;
         }
 
-        let mut tail_edges = Vec::new();
+        let mut tail_edges = Vec::with_capacity(self.depth[v].saturating_sub(self.depth[lca]));
         curr = v;
         while curr != lca {
             let edge_id = self.parent_edge[curr];
