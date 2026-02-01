@@ -67,7 +67,8 @@ impl Potential {
 
     pub fn reduction_floor(&self, current_potential: f64) -> f64 {
         let log_term = self.m_u.ln().max(2.0);
-        let factor = 1.0 / (log_term * log_term);
+        let denom = log_term * log_term * log_term * self.edge_count.max(1.0);
+        let factor = 1.0 / denom.max(1.0);
         current_potential.abs().max(1.0) * factor
     }
 

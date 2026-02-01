@@ -60,6 +60,7 @@ fn build_problem(
     .map_err(|err| pyo3::exceptions::PyValueError::new_err(format!("{err:?}")))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_options(
     strategy: Option<String>,
     rebuild_every: Option<usize>,

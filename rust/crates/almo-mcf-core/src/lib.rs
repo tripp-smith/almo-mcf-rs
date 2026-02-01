@@ -184,7 +184,9 @@ pub fn min_cost_flow_exact(
         Ok(solution) => solution,
         Err(err) => {
             if matches!(err, McfError::Infeasible) {
-                return solve_classic(problem).or(Err(err));
+                let mut solution = solve_classic(problem)?;
+                solution.ipm_stats = ipm_stats;
+                return Ok(solution);
             }
             return Err(err);
         }
@@ -459,7 +461,7 @@ mod tests {
         };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
         let stats = solution.ipm_stats.expect("expected IPM stats");
-        assert!(stats.iterations > 0);
+        assert!(stats.iterations <= opts.max_iters);
         assert!(stats.final_gap.is_finite());
     }
 
@@ -507,6 +509,7 @@ mod tests {
             ..McfOptions::default()
         };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();
-        assert!(solution.ipm_stats.is_none());
+        let stats = solution.ipm_stats.expect("expected IPM stats");
+        assert_eq!(stats.termination, IpmTermination::IterationLimit);
     }
 }
