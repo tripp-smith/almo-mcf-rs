@@ -98,6 +98,7 @@ impl EdgeSpanner {
         }
     }
 
+    #[cfg(test)]
     fn insert_edge(&mut self, u: usize, v: usize) -> usize {
         match self {
             EdgeSpanner::Randomized(spanner) => spanner.insert_edge(u, v),
@@ -105,6 +106,7 @@ impl EdgeSpanner {
         }
     }
 
+    #[cfg(test)]
     fn set_embedding(&mut self, edge_id: usize, steps: Vec<EmbeddingStep>) {
         match self {
             EdgeSpanner::Randomized(spanner) => spanner.set_embedding(edge_id, steps),
@@ -112,6 +114,7 @@ impl EdgeSpanner {
         }
     }
 
+    #[cfg(test)]
     fn embedding_endpoints(&self, edge_id: usize) -> Option<(usize, usize)> {
         match self {
             EdgeSpanner::Randomized(spanner) => spanner.embedding_endpoints(edge_id),
