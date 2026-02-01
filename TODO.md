@@ -41,9 +41,9 @@
 
 ### 5. Deployment and Maintenance
 
-- [ ] Build and test PyPI package with full IPM
-- [ ] Publish first release on GitHub (tag v0.1.0, include changelog)
-- [ ] Expand CI workflows: Add tests for IPM, linting (rustfmt, clippy), and cross-platform builds
-- [ ] Add CONTRIBUTING.md: Guidelines for issues/PRs
-- [ ] Monitor for scalability: Test on m=10^5+ graphs, fix any memory/time issues
-- [ ] Solicit feedback: Add issue templates for bugs/feature requests aligned with paper
+- [x] Build and test PyPI package with full IPM
+- [x] Publish first release on GitHub (tag v0.1.0, include changelog)
+- [x] Expand CI workflows: Add tests for IPM, linting (rustfmt, clippy), and cross-platform builds
+- [x] Add CONTRIBUTING.md: Guidelines for issues/PRs
+- [x] Monitor for scalability: Test on m=10^5+ graphs, fix any memory/time issues
+- [x] Solicit feedback: Add issue templates for bugs/feature requests aligned with paper
