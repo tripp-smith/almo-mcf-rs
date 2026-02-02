@@ -54,6 +54,8 @@ pub struct McfOptions {
     pub use_ipm: Option<bool>,
     pub approx_factor: f64,
     pub deterministic: bool,
+    pub initial_flow: Option<Vec<i64>>,
+    pub initial_perturbation: f64,
 }
 
 impl Default for McfOptions {
@@ -69,6 +71,8 @@ impl Default for McfOptions {
             use_ipm: None,
             approx_factor: 0.1,
             deterministic: true,
+            initial_flow: None,
+            initial_perturbation: 0.0,
         }
     }
 }

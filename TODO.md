@@ -1,13 +1,13 @@
 ### 1. Implement the Potential-Reduction IPM Framework (Core Driver from Paper 1, Section 4)
 This is the main loop for potential reduction via min-ratio cycle queries and flow updates.
 
-- [ ] Define the potential function \(\Phi(f)\) in code, including the log term for cost and power barriers for capacities (use parameters like \(\alpha = 1/(1000 \log(mU))\)).
-- [ ] Implement gradient \(g(f)\) and length \(\ell(f)\) computations for a given flow \(f\).
-- [ ] Add initial feasible flow finder (e.g., zero flow or simple augmentation).
-- [ ] Implement binary search for optimal cost \(F^*\).
-- [ ] Code the main IPM iteration: Approximate min-ratio cycle query, circulation extraction, step size \(\eta\) computation, and flow update.
-- [ ] Add convergence check (potential reduction by \(\Omega(\kappa^2)\), with \(\kappa \geq m^{-o(1)}\)).
-- [ ] Integrate with existing preprocessing (demands, capacities) and test on small graphs for correctness.
+- [x] Define the potential function \(\Phi(f)\) in code, including the log term for cost and power barriers for capacities (use parameters like \(\alpha = 1/(1000 \log(mU))\)).
+- [x] Implement gradient \(g(f)\) and length \(\ell(f)\) computations for a given flow \(f\).
+- [x] Add initial feasible flow finder (e.g., zero flow or simple augmentation).
+- [x] Implement binary search for optimal cost \(F^*\).
+- [x] Code the main IPM iteration: Approximate min-ratio cycle query, circulation extraction, step size \(\eta\) computation, and flow update.
+- [x] Add convergence check (potential reduction by \(\Omega(\kappa^2)\), with \(\kappa \geq m^{-o(1)}\)).
+- [x] Integrate with existing preprocessing (demands, capacities) and test on small graphs for correctness.
 
 ### 2. Implement Capacity and Cost Scaling (From Paper 1, Appendix C)
 Reduces inputs to poly bounds for IPM applicability.

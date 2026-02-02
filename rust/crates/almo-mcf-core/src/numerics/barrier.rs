@@ -59,13 +59,13 @@ fn preprocess_deltas_simd(
     (upper_delta, lower_delta)
 }
 
-fn barrier_term(delta: f64, alpha: f64) -> f64 {
-    let exponent = -((1.0 + alpha) * safe_log(delta, 1e-12));
+fn barrier_term(delta: f64, beta: f64) -> f64 {
+    let exponent = -(beta * safe_log(delta, 1e-12));
     safe_exp(exponent, 700.0)
 }
 
-fn barrier_term_derivative(delta: f64, alpha: f64) -> f64 {
-    -((1.0 + alpha) / delta) * barrier_term(delta, alpha)
+fn barrier_term_derivative(delta: f64, beta: f64) -> f64 {
+    -(beta / delta) * barrier_term(delta, beta)
 }
 
 pub fn safe_log(value: f64, min_value: f64) -> f64 {
@@ -80,7 +80,7 @@ pub fn barrier_lengths(
     flow: &[f64],
     lower: &[f64],
     upper: &[f64],
-    alpha: f64,
+    beta: f64,
     min_value: f64,
     threads: usize,
 ) -> Vec<f64> {
@@ -112,7 +112,7 @@ pub fn barrier_lengths(
                         .zip(upper_chunk.iter())
                         .zip(lower_chunk.iter())
                     {
-                        *out = barrier_term(*upper_d, alpha) + barrier_term(*lower_d, alpha);
+                        *out = barrier_term(*upper_d, beta) + barrier_term(*lower_d, beta);
                     }
                 });
             }
@@ -126,7 +126,7 @@ pub fn barrier_lengths(
         upper_delta
             .iter()
             .zip(lower_delta.iter())
-            .map(|(upper_d, lower_d)| barrier_term(*upper_d, alpha) + barrier_term(*lower_d, alpha))
+            .map(|(upper_d, lower_d)| barrier_term(*upper_d, beta) + barrier_term(*lower_d, beta))
             .collect()
     }
 }
@@ -135,7 +135,7 @@ pub fn barrier_gradient(
     flow: &[f64],
     lower: &[f64],
     upper: &[f64],
-    alpha: f64,
+    beta: f64,
     min_value: f64,
     threads: usize,
 ) -> Vec<f64> {
@@ -167,8 +167,8 @@ pub fn barrier_gradient(
                         .zip(upper_chunk.iter())
                         .zip(lower_chunk.iter())
                     {
-                        let upper_term = -barrier_term_derivative(*upper_d, alpha);
-                        let lower_term = barrier_term_derivative(*lower_d, alpha);
+                        let upper_term = -barrier_term_derivative(*upper_d, beta);
+                        let lower_term = barrier_term_derivative(*lower_d, beta);
                         *out = upper_term + lower_term;
                     }
                 });
@@ -184,8 +184,8 @@ pub fn barrier_gradient(
             .iter()
             .zip(lower_delta.iter())
             .map(|(upper_d, lower_d)| {
-                let upper_term = -barrier_term_derivative(*upper_d, alpha);
-                let lower_term = barrier_term_derivative(*lower_d, alpha);
+                let upper_term = -barrier_term_derivative(*upper_d, beta);
+                let lower_term = barrier_term_derivative(*lower_d, beta);
                 upper_term + lower_term
             })
             .collect()
@@ -207,7 +207,7 @@ mod tests {
         flow: &[f64],
         lower: &[f64],
         upper: &[f64],
-        alpha: f64,
+        beta: f64,
         min_value: f64,
     ) -> Vec<f64> {
         flow.iter()
@@ -216,7 +216,7 @@ mod tests {
             .map(|((f, l), u)| {
                 let upper_delta = clamp_min(u - f, min_value);
                 let lower_delta = clamp_min(f - l, min_value);
-                barrier_term(upper_delta, alpha) + barrier_term(lower_delta, alpha)
+                barrier_term(upper_delta, beta) + barrier_term(lower_delta, beta)
             })
             .collect()
     }
@@ -225,7 +225,7 @@ mod tests {
         flow: &[f64],
         lower: &[f64],
         upper: &[f64],
-        alpha: f64,
+        beta: f64,
         min_value: f64,
     ) -> Vec<f64> {
         flow.iter()
@@ -234,8 +234,8 @@ mod tests {
             .map(|((f, l), u)| {
                 let upper_delta = clamp_min(u - f, min_value);
                 let lower_delta = clamp_min(f - l, min_value);
-                let upper_term = -barrier_term_derivative(upper_delta, alpha);
-                let lower_term = barrier_term_derivative(lower_delta, alpha);
+                let upper_term = -barrier_term_derivative(upper_delta, beta);
+                let lower_term = barrier_term_derivative(lower_delta, beta);
                 upper_term + lower_term
             })
             .collect()
@@ -247,10 +247,10 @@ mod tests {
         flow: &[f64],
         lower: &[f64],
         upper: &[f64],
-        alpha: f64,
+        beta: f64,
         min_value: f64,
     ) -> f64 {
-        barrier_lengths(flow, lower, upper, alpha, min_value, 0)
+        barrier_lengths(flow, lower, upper, beta, min_value, 0)
             .iter()
             .sum::<f64>()
     }
@@ -260,11 +260,11 @@ mod tests {
         let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1];
         let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0];
         let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0];
-        let alpha = 0.01;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let expected = serial_lengths(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
+        let expected = serial_lengths(&flow, &lower, &upper, beta, min_value);
+        let actual = barrier_lengths(&flow, &lower, &upper, beta, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -276,11 +276,11 @@ mod tests {
         let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1];
         let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0];
         let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0];
-        let alpha = 0.02;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let expected = serial_gradient(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
+        let expected = serial_gradient(&flow, &lower, &upper, beta, min_value);
+        let actual = barrier_gradient(&flow, &lower, &upper, beta, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -292,11 +292,11 @@ mod tests {
         let flow = vec![1e-12, 9.999999999, 5.0];
         let lower = vec![0.0, 0.0, 5.0];
         let upper = vec![10.0, 10.0, 10.0];
-        let alpha = 0.03;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
-        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
+        let lengths = barrier_lengths(&flow, &lower, &upper, beta, min_value, 0);
+        let gradient = barrier_gradient(&flow, &lower, &upper, beta, min_value, 0);
 
         for value in lengths.iter().chain(gradient.iter()) {
             assert!(value.is_finite());
@@ -311,18 +311,18 @@ mod tests {
         let mut flow = vec![2.5, 4.0, 6.0];
         let lower = vec![1.0, 2.0, 4.0];
         let upper = vec![10.0, 8.0, 9.0];
-        let alpha = 0.01;
+        let beta = 0.5;
         let min_value = 1e-9;
         let eps = 1e-6;
 
-        let analytic = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
+        let analytic = barrier_gradient(&flow, &lower, &upper, beta, min_value, 0);
 
         for idx in 0..flow.len() {
             let original = flow[idx];
             flow[idx] = original + eps;
-            let plus = barrier_energy(&flow, &lower, &upper, alpha, min_value);
+            let plus = barrier_energy(&flow, &lower, &upper, beta, min_value);
             flow[idx] = original - eps;
-            let minus = barrier_energy(&flow, &lower, &upper, alpha, min_value);
+            let minus = barrier_energy(&flow, &lower, &upper, beta, min_value);
             flow[idx] = original;
 
             let numerical = (plus - minus) / (2.0 * eps);
@@ -336,12 +336,12 @@ mod tests {
         // rapidly increasing penalty near bounds.
         let lower = vec![0.0];
         let upper = vec![10.0];
-        let alpha = 0.05;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let middle = barrier_lengths(&[5.0], &lower, &upper, alpha, min_value, 0)[0];
-        let near_lower = barrier_lengths(&[0.1], &lower, &upper, alpha, min_value, 0)[0];
-        let near_upper = barrier_lengths(&[9.9], &lower, &upper, alpha, min_value, 0)[0];
+        let middle = barrier_lengths(&[5.0], &lower, &upper, beta, min_value, 0)[0];
+        let near_lower = barrier_lengths(&[0.1], &lower, &upper, beta, min_value, 0)[0];
+        let near_upper = barrier_lengths(&[9.9], &lower, &upper, beta, min_value, 0)[0];
 
         assert!(near_lower > middle);
         assert!(near_upper > middle);
@@ -354,24 +354,24 @@ mod tests {
         let flow = vec![0.0];
         let lower = vec![-5.0];
         let upper = vec![5.0];
-        let alpha = 0.1;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let gradient = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
+        let gradient = barrier_gradient(&flow, &lower, &upper, beta, min_value, 0);
         assert_close(gradient[0], 0.0, 1e-12);
     }
 
     #[test]
     fn matches_power_barrier_reference() {
-        // Compare against the closed-form "power barrier" (delta^-(1+alpha))
-        // to show equivalence with a well-known alternative formulation.
+        // Compare against the closed-form "power barrier" (delta^-beta) to show
+        // equivalence with a well-known alternative formulation.
         let flow = vec![3.0, 4.0];
         let lower = vec![0.0, 1.0];
         let upper = vec![10.0, 9.0];
-        let alpha = 0.2;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let lengths = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
+        let lengths = barrier_lengths(&flow, &lower, &upper, beta, min_value, 0);
         let reference: Vec<f64> = flow
             .iter()
             .zip(lower.iter())
@@ -379,7 +379,7 @@ mod tests {
             .map(|((f, l), u)| {
                 let upper_delta = clamp_min(u - f, min_value);
                 let lower_delta = clamp_min(f - l, min_value);
-                upper_delta.powf(-(1.0 + alpha)) + lower_delta.powf(-(1.0 + alpha))
+                upper_delta.powf(-beta) + lower_delta.powf(-beta)
             })
             .collect();
 
@@ -394,11 +394,11 @@ mod tests {
         let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1, 3.3, 6.7, 8.8];
         let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0, 0.5, 1.1, 2.2];
         let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0, 9.5, 8.0, 11.0];
-        let alpha = 0.01;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let expected = serial_lengths(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_lengths(&flow, &lower, &upper, alpha, min_value, 0);
+        let expected = serial_lengths(&flow, &lower, &upper, beta, min_value);
+        let actual = barrier_lengths(&flow, &lower, &upper, beta, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);
@@ -411,11 +411,11 @@ mod tests {
         let flow = vec![2.0, 4.5, 7.2, 1.2, 9.1, 3.3, 6.7, 8.8];
         let lower = vec![0.0, 1.0, 2.0, 0.0, 5.0, 0.5, 1.1, 2.2];
         let upper = vec![10.0, 10.0, 10.0, 3.0, 12.0, 9.5, 8.0, 11.0];
-        let alpha = 0.01;
+        let beta = 0.5;
         let min_value = 1e-9;
 
-        let expected = serial_gradient(&flow, &lower, &upper, alpha, min_value);
-        let actual = barrier_gradient(&flow, &lower, &upper, alpha, min_value, 0);
+        let expected = serial_gradient(&flow, &lower, &upper, beta, min_value);
+        let actual = barrier_gradient(&flow, &lower, &upper, beta, min_value, 0);
 
         for (a, b) in expected.iter().zip(actual.iter()) {
             assert_close(*a, *b, 1e-12);

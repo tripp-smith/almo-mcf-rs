@@ -8,6 +8,7 @@ pub fn line_search(
     upper: &[f64],
     potential: &Potential,
     current_potential: f64,
+    required_reduction: f64,
 ) -> Option<(Vec<f64>, f64)> {
     let mut max_step = f64::INFINITY;
     for (idx, &d) in delta.iter().enumerate() {
@@ -25,7 +26,6 @@ pub fn line_search(
     }
 
     let mut step = max_step * 0.99;
-    let reduction_floor = potential.reduction_floor(current_potential);
     for _ in 0..20 {
         let candidate_flow: Vec<f64> = flow
             .iter()
@@ -33,7 +33,7 @@ pub fn line_search(
             .map(|(f, d)| f + step * d)
             .collect();
         let candidate_potential = potential.value(cost, &candidate_flow, lower, upper);
-        if candidate_potential <= current_potential - reduction_floor {
+        if candidate_potential <= current_potential - required_reduction {
             return Some((candidate_flow, step));
         }
         step *= 0.5;

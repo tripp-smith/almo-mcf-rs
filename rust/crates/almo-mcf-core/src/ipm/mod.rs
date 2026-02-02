@@ -44,25 +44,63 @@ pub struct FeasibleFlow {
 }
 
 pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, McfError> {
-    let base_flow = solve_feasible_flow(
+    let base_flow = solve_feasible_flow_with_costs(
         problem.node_count,
         &problem.tails,
         &problem.heads,
         &problem.lower,
         &problem.upper,
         &problem.demands,
+        None,
     )?;
     let flow = push_inside_strict(problem, &base_flow)?;
     Ok(FeasibleFlow { flow })
 }
 
 pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, McfError> {
-    let feasible = initialize_feasible_flow(problem)?;
+    let mut bounds = CostBounds::new(problem)?;
+    let mut best: Option<IpmResult> = None;
+    let max_search_iters = 48;
+
+    for _ in 0..max_search_iters {
+        if bounds.low > bounds.high {
+            break;
+        }
+        let mid = bounds.midpoint();
+        let result = run_ipm_with_lower_bound(problem, opts, mid as f64)?;
+        let final_cost = flow_cost(&result.flow, &problem.cost);
+
+        if result.termination == IpmTermination::Converged && final_cost <= mid as f64 {
+            bounds.high = mid - 1;
+            best = Some(result);
+        } else {
+            bounds.low = mid + 1;
+        }
+
+        if bounds.low > bounds.high {
+            break;
+        }
+    }
+
+    if let Some(best) = best {
+        return Ok(best);
+    }
+
+    run_ipm_with_lower_bound(problem, opts, bounds.high as f64)
+}
+
+fn run_ipm_with_lower_bound(
+    problem: &McfProblem,
+    opts: &McfOptions,
+    cost_lower_bound: f64,
+) -> Result<IpmResult, McfError> {
+    let feasible = initialize_feasible_flow_with_options(problem, opts)?;
     let mut flow = feasible.flow;
     let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
     let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
     let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
-    let potential = Potential::new(&upper, opts.alpha, opts.threads);
+    let potential =
+        Potential::new_with_lower_bound(&upper, opts.alpha, None, opts.threads, cost_lower_bound);
     let termination_target = potential.termination_target();
 
     let mut fallback_oracle = None;
@@ -162,6 +200,18 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             delta[edge_id] += dir as f64;
         }
 
+        let kappa = (-best.ratio).max(0.0);
+        if kappa < potential.kappa_floor() {
+            termination = IpmTermination::Converged;
+            stats.iterations = iter;
+            break;
+        }
+
+        // Theorem 4.2: each accepted step should reduce the potential by
+        // Omega(kappa^2), with kappa >= m^{-o(1)}.
+        let required_reduction = potential
+            .reduction_floor(current_potential)
+            .max(0.1 * kappa * kappa);
         if let Some((candidate_flow, step)) = search::line_search(
             &flow,
             &delta,
@@ -170,6 +220,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             &upper,
             &potential,
             current_potential,
+            required_reduction,
         ) {
             flow = candidate_flow;
             stats.last_step_size = step;
@@ -205,13 +256,115 @@ fn compute_gradient_and_lengths(
     (gradient, lengths)
 }
 
-fn solve_feasible_flow(
+fn flow_cost(flow: &[f64], cost: &[i64]) -> f64 {
+    flow.iter()
+        .zip(cost.iter())
+        .map(|(f, c)| *f * (*c as f64))
+        .sum()
+}
+
+fn cost_lower_bound(problem: &McfProblem) -> i128 {
+    problem
+        .cost
+        .iter()
+        .zip(problem.lower.iter().zip(problem.upper.iter()))
+        .map(|(&c, (&lo, &up))| {
+            if c >= 0 {
+                c as i128 * lo as i128
+            } else {
+                c as i128 * up as i128
+            }
+        })
+        .sum()
+}
+
+struct CostBounds {
+    low: i128,
+    high: i128,
+}
+
+impl CostBounds {
+    fn new(problem: &McfProblem) -> Result<Self, McfError> {
+        let feasible = initialize_feasible_flow(problem)?;
+        let upper_bound = flow_cost(&feasible.flow, &problem.cost).ceil() as i128;
+        let lower_bound = cost_lower_bound(problem);
+        let (low, high) = if lower_bound <= upper_bound {
+            (lower_bound, upper_bound)
+        } else {
+            (upper_bound, lower_bound)
+        };
+        Ok(Self { low, high })
+    }
+
+    fn midpoint(&self) -> i128 {
+        self.low + (self.high - self.low) / 2
+    }
+}
+
+struct Lcg {
+    state: u64,
+}
+
+impl Lcg {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        self.state
+    }
+
+    fn next_f64(&mut self) -> f64 {
+        let value = self.next_u64() >> 11;
+        (value as f64) / ((1_u64 << 53) as f64)
+    }
+}
+
+fn initialize_feasible_flow_with_options(
+    problem: &McfProblem,
+    opts: &McfOptions,
+) -> Result<FeasibleFlow, McfError> {
+    if let Some(flow) = opts.initial_flow.as_deref() {
+        validate_base_flow(problem, flow)?;
+        let flow = push_inside_strict(problem, flow)?;
+        return Ok(FeasibleFlow { flow });
+    }
+
+    if opts.initial_perturbation <= 0.0 {
+        return initialize_feasible_flow(problem);
+    }
+
+    let mut rng = Lcg::new(opts.seed ^ 0x9E3779B97F4A7C15);
+    let scale = (opts.initial_perturbation.abs() * 1000.0).max(1.0) as i64;
+    let edge_costs: Vec<i64> = (0..problem.edge_count())
+        .map(|_| {
+            let value = (rng.next_f64() * 2.0 - 1.0) * scale as f64;
+            value.round() as i64
+        })
+        .collect();
+
+    let base_flow = solve_feasible_flow_with_costs(
+        problem.node_count,
+        &problem.tails,
+        &problem.heads,
+        &problem.lower,
+        &problem.upper,
+        &problem.demands,
+        Some(&edge_costs),
+    )?;
+    let flow = push_inside_strict(problem, &base_flow)?;
+    Ok(FeasibleFlow { flow })
+}
+
+fn solve_feasible_flow_with_costs(
     node_count: usize,
     tails: &[u32],
     heads: &[u32],
     lower: &[i64],
     upper: &[i64],
     demands: &[i64],
+    edge_costs: Option<&[i64]>,
 ) -> Result<Vec<i64>, McfError> {
     let n = node_count;
     let m = lower.len();
@@ -263,7 +416,11 @@ fn solve_feasible_flow(
         }
         let tail = tails[i] as usize;
         let head = heads[i] as usize;
-        let (idx, _rev) = mcf.add_edge(tail, head, cap, 0);
+        let cost = edge_costs
+            .and_then(|values| values.get(i))
+            .copied()
+            .unwrap_or(0);
+        let (idx, _rev) = mcf.add_edge(tail, head, cap, cost);
         edge_refs.push((tail, idx, cap));
     }
 
@@ -326,13 +483,14 @@ fn push_inside_strict(problem: &McfProblem, base_flow: &[i64]) -> Result<Vec<f64
     }
 
     let zero_demands = vec![0_i64; n];
-    let delta = solve_feasible_flow(
+    let delta = solve_feasible_flow_with_costs(
         n,
         &problem.tails,
         &problem.heads,
         &lower_delta,
         &upper_delta,
         &zero_demands,
+        None,
     )?;
     let mut flow = vec![0_f64; m];
     for i in 0..m {
@@ -348,6 +506,40 @@ fn scale_checked(value: i64, scale: i64) -> Result<i64, McfError> {
     value
         .checked_mul(scale)
         .ok_or_else(|| McfError::InvalidInput("scaled value overflow".to_string()))
+}
+
+fn validate_base_flow(problem: &McfProblem, flow: &[i64]) -> Result<(), McfError> {
+    if flow.len() != problem.edge_count() {
+        return Err(McfError::InvalidInput(
+            "initial flow length mismatch".to_string(),
+        ));
+    }
+    let mut balance = vec![0_i64; problem.node_count];
+    for (idx, &value) in flow.iter().enumerate() {
+        let lower = problem.lower[idx];
+        let upper = problem.upper[idx];
+        if value < lower || value > upper {
+            return Err(McfError::InvalidInput(
+                "initial flow violates bounds".to_string(),
+            ));
+        }
+        let tail = problem.tails[idx] as usize;
+        let head = problem.heads[idx] as usize;
+        balance[tail] = balance[tail]
+            .checked_sub(value)
+            .ok_or_else(|| McfError::InvalidInput("balance overflow".to_string()))?;
+        balance[head] = balance[head]
+            .checked_add(value)
+            .ok_or_else(|| McfError::InvalidInput("balance overflow".to_string()))?;
+    }
+    for (node, &demand) in problem.demands.iter().enumerate() {
+        if balance[node] != demand {
+            return Err(McfError::InvalidInput(
+                "initial flow violates demands".to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -583,6 +775,10 @@ mod tests {
         }
 
         let current_potential = potential.value(&cost, &flow, &lower, &upper);
+        let kappa = (-best.ratio).max(0.0);
+        let required_reduction = potential
+            .reduction_floor(current_potential)
+            .max(0.1 * kappa * kappa);
         let (candidate_flow, _step) = search::line_search(
             &flow,
             &delta,
@@ -591,14 +787,32 @@ mod tests {
             &upper,
             &potential,
             current_potential,
+            required_reduction,
         )
         .expect("line search should find improvement");
         let candidate_potential = potential.value(&cost, &candidate_flow, &lower, &upper);
-        assert!(
-            candidate_potential <= current_potential - potential.reduction_floor(current_potential)
-        );
+        assert!(candidate_potential <= current_potential - required_reduction);
         for (idx, &value) in candidate_flow.iter().enumerate() {
             assert!(value > lower[idx] && value < upper[idx]);
         }
+    }
+
+    #[test]
+    fn binary_search_respects_cost_bounds() {
+        let problem = McfProblem::new(
+            vec![0, 0, 1],
+            vec![1, 2, 2],
+            vec![0, 0, 0],
+            vec![5, 5, 5],
+            vec![2, 1, 3],
+            vec![-3, 0, 3],
+        )
+        .unwrap();
+        let bounds = CostBounds::new(&problem).unwrap();
+        let result =
+            run_ipm_with_lower_bound(&problem, &McfOptions::default(), bounds.low as f64).unwrap();
+        let final_cost = flow_cost(&result.flow, &problem.cost);
+        assert!(final_cost <= bounds.high as f64);
+        assert!(final_cost >= bounds.low as f64 - 1e-6);
     }
 }
