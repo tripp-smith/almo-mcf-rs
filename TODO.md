@@ -94,9 +94,9 @@
 
 ### 7. Documentation and Deployment
 
-- [ ] Update README to document deterministic enhancements, usage flags, and performance claims
-- [ ] Expand docs/ with notes on derandomization techniques and pseudocode adaptations
-- [ ] Update TODO.md to track integration progress and mark related items
-- [ ] Reference the derandomization paper (arXiv:2309.16629) in README.md, adding it to the References section
-- [ ] Build and test updated PyPI package with deterministic features
-- [ ] Publish release with deterministic support, including changelog highlighting improvements
+- [x] Update README to document deterministic enhancements, usage flags, and performance claims
+- [x] Expand docs/ with notes on derandomization techniques and pseudocode adaptations
+- [x] Update TODO.md to track integration progress and mark related items
+- [x] Reference the derandomization paper (arXiv:2309.16629) in README.md, adding it to the References section
+- [x] Build and test updated PyPI package with deterministic features
+- [x] Publish release with deterministic support, including changelog highlighting improvements

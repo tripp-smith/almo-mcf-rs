@@ -14,3 +14,55 @@ This note summarizes the deterministic updates from the derandomization framewor
 - Randomized dynamic spanners use probabilistic update schedules; deterministic variants rely on structured rebuild triggers that do not depend on random bits.
 
 These notes are referenced from DESIGN_SPEC.md to document the deterministic pathway within the IPM loop and min-ratio cycle oracles.
+
+## Pseudocode adaptations (deterministic variants)
+
+The following sketches describe how the randomized components are replaced by deterministic,
+reproducible counterparts in this codebase.
+
+### Deterministic vertex sparsification
+
+```
+procedure DeterministicVertexDecomposition(G, tree, cluster_target):
+    order <- fixed ordering of vertices (e.g., ID order)
+    clusters <- empty
+    for v in order:
+        if v not assigned:
+            cluster <- BFS in tree, stopping after cluster_target vertices
+            assign cluster with deterministic tie-breaking
+            clusters.append(cluster)
+    return clusters
+```
+
+Key changes:
+- Replace random sampling with a stable traversal order.
+- Use deterministic tie-breaking for cluster boundaries.
+
+### Deterministic dynamic spanner maintenance
+
+```
+procedure DeterministicDynamicSpanner(update, rebuild_every):
+    apply update to graph
+    if updates_since_rebuild >= rebuild_every:
+        rebuild full spanner deterministically
+    else:
+        repair local embeddings deterministically
+```
+
+Key changes:
+- Rebuild cadence depends on fixed counters, not randomness.
+- Embeddings are repaired with deterministic BFS ordering.
+
+### Deterministic min-ratio cycle selection
+
+```
+procedure DeterministicMinRatioCycle(oracle_state):
+    candidates <- collect off-tree edges in fixed order
+    for edge in candidates:
+        compute ratio(edge)
+    return argmin ratio with deterministic tie-break
+```
+
+Key changes:
+- Enumeration uses stable ordering of edges.
+- Ties are broken deterministically to ensure reproducibility.
