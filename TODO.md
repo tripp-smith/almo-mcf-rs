@@ -1,102 +1,74 @@
-# Phase I
+### 1. Implement the Potential-Reduction IPM Framework (Core Driver from Paper 1, Section 4)
+This is the main loop for potential reduction via min-ratio cycle queries and flow updates.
 
-### 1. Integrate IPM and Min-Ratio Cycle Solver
+- [ ] Define the potential function \(\Phi(f)\) in code, including the log term for cost and power barriers for capacities (use parameters like \(\alpha = 1/(1000 \log(mU))\)).
+- [ ] Implement gradient \(g(f)\) and length \(\ell(f)\) computations for a given flow \(f\).
+- [ ] Add initial feasible flow finder (e.g., zero flow or simple augmentation).
+- [ ] Implement binary search for optimal cost \(F^*\).
+- [ ] Code the main IPM iteration: Approximate min-ratio cycle query, circulation extraction, step size \(\eta\) computation, and flow update.
+- [ ] Add convergence check (potential reduction by \(\Omega(\kappa^2)\), with \(\kappa \geq m^{-o(1)}\)).
+- [ ] Integrate with existing preprocessing (demands, capacities) and test on small graphs for correctness.
 
-- [x] Implement the potential function Φ(f) (Eq. 3 in paper) in Rust core, including power barrier x^{-α} with α = 1/(1000 log mU)
-- [x] Add gradient g(f) and length ℓ(f) computation to the Rust solver, ensuring bit-complexity bounds (exp(log^{O(1)} m))
-- [x] Implement the IPM iteration loop: Reduce Φ by m^{-o(1)} per iteration, terminating when Φ ≤ -200m log mU
-- [x] Integrate min-ratio cycle oracle (min_{B^T Δ=0} g^T Δ / ||L Δ||_1) as a subroutine in Rust, with mo(1) approximation support
-- [x] Wire IPM as optional/default path in Python API (e.g., flag in min_cost_flow to toggle IPM vs. successive shortest path)
-- [x] Add rounding to exact optimal flow when c^T f - F^* ≤ (mU)^{-10}
-- [x] Verify IPM stability lemmas (Lemmas 4.9-4.10) in code via unit tests on small graphs
+### 2. Implement Capacity and Cost Scaling (From Paper 1, Appendix C)
+Reduces inputs to poly bounds for IPM applicability.
 
-### 2. Implement Dynamic Data Structures
+- [ ] Implement cost scaling (Algorithm 9): Binary search cost bounds, solve rounded instances using the IPM.
+- [ ] Implement capacity scaling (Algorithm 10): Binary search bottlenecks, compute unit-capacity min-cost circulations.
+- [ ] Ensure each scaling round calls the core IPM solver.
+- [ ] Handle polynomial bounds on \(U\) and \(C\) (e.g., via big integers in Rust if needed).
+- [ ] Test scaling independently on graphs with large \(U/C\), verifying reduction to poly(m) bounds.
+- [ ] Integrate as a wrapper around the main solver in the Python API.
 
-- [x] Implement dynamic spanner with embeddings (Theorem 5.1): Maintain subgraph H with Õ(n) edges, explicit path embeddings of length mo(1), amortized mo(1) changes per update
-- [x] Add low-stretch spanning tree (LST) computation with stretch str_{T,ℓ}^e = Õ(1) in expectation
-- [x] Build recursive hierarchy: Reduce vertices via partial tree embeddings, edges via spanners
-- [x] Implement tree-chain maintenance: Support returning mo(1)-approx min-ratio cycles (union of mo(1) off-tree edges + tree paths)
-- [x] Add circulation routing along cycles (pass circulations through tree-chain with length upper bounds)
-- [x] Implement approximate min-ratio cycle finder in tree-chain
-- [x] Handle non-oblivious adversaries: Integrate rebuilding game (analyze game algorithm, dynamic min-ratio using game)
-- [x] Ensure amortized mo(1) time per update/query (insert/delete edge, update g/ℓ, identify high-flow edges)
+### 3. Implement Low-Stretch Decomposition and Forests (From Papers 1 & 2, Sections 6)
+Handles graph decomposition; start with randomized (Paper 1), then derandomize (Paper 2).
 
-### 3. Handle Edge Cases and Extensions
+- [ ] Implement basic low-stretch spanning tree (LSST) construction with stretch \(O(\gamma_{LSST} \log^4 n)\) (randomized sampling).
+- [ ] Add forest operations: Promote roots, delete edges, compute stretch overestimates.
+- [ ] Implement multiplicative-weight sampling for fixed circulations (Lemma 6.6, sample \(B = O(\log n)\) trees).
+- [ ] For derandomization: Precompute multiple forests (\(s\) forests), implement shifting logic to cycle through them.
+- [ ] Add lazy update propagation to forests during shifts.
+- [ ] Test forest stretch and updates on random graphs, measuring amortized times.
+- [ ] Integrate into hierarchical levels (e.g., recurse on contracted cores).
 
-- [x] Add capacity/cost scaling reductions to poly(m) bounded U/C
-- [x] Implement max-flow reduction to min-cost circulation (add t→s edge)
-- [x] Support MultiDiGraph in NetworkX adapter
-- [x] Add general convex objectives (edge-separable cost(f) = ∑_e cost_e(f_e), e.g., p-norms, entropy-regularized OT, matrix scaling)
-- [x] Implement applications: Bipartite matching, negative cycle detection, vertex connectivity, Gomory-Hu trees, sparsest cuts
-- [x] Handle directed acyclic graphs (DAGs) for isotonic regression
-- [x] Add error handling for invalid inputs (e.g., sum demands ≠ 0, infinite capacities)
+### 4. Implement Dynamic Decremental Spanner (From Paper 1, Theorem 5.1)
+Sparsifies the core graph with embeddings.
 
-### 4. Optimization, Testing, and Documentation
+- [ ] Define spanner parameters: \(O(n)\) edges, congestion/path length bounds, \(O(n^{1/L})\) recourse per batch (\(L = (\log m)^{1/4}\)).
+- [ ] Implement spanner construction: Build levels, expander decomposition for sparsification.
+- [ ] Add update operations: Batch insert/delete edges, split vertices, query embeddings.
+- [ ] Handle decremental updates (e.g., project affected edges, embed into levels).
+- [ ] Test spanner quality (stretch, size) on decremental graph sequences.
+- [ ] Ensure compatibility with core-graph contraction (e.g., output sparse \(S(G, F)\)).
 
-- [x] Expand pytest suite: Add IPM-specific tests, large-instance regressions, and parity with NetworkX on random graphs
-- [x] Implement benchmarks: Compare IPM vs. successive shortest path on varying m/n/U/C
-- [x] Tune performance: Optimize for large instances (parallelize tree computations if possible, reduce constants in mo(1))
-- [x] Update README: Document IPM usage, examples for extensions, performance claims
-- [x] Expand DESIGN_SPEC.md: Detail full integration, with code references
-- [x] Update TODO.md: Mark completed items, add any new gaps found during testing
-- [x] Add math notes in docs/ for IPM proofs/stability
+### 5. Implement Branching-Tree-Chain and Min-Ratio Cycle Extraction (From Paper 1, Sections 7 & Algorithm 5)
+The query mechanism for approx min-ratio cycles.
 
-### 5. Deployment and Maintenance
+- [ ] Build hierarchical structure: \(d = \Omega(\log_{1/8} n)\) levels, each with LSD forest, core contraction, and spanner.
+- [ ] Implement cycle extraction: For off-tree edges, form fundamental cycles (tree paths + spanner cycles).
+- [ ] Compute gradient products and length overestimates for each cycle.
+- [ ] Select max-ratio cycle (approx min-ratio via \(m^{o(1)}\) factor).
+- [ ] Add circulation decomposition into \(O(\log n)\) tree-paths + \(m^{o(1)}\) off-tree edges.
+- [ ] Test end-to-end cycle queries on residual graphs, verifying approximation factors.
+- [ ] Integrate with IPM loop for repeated queries.
 
-- [x] Build and test PyPI package with full IPM
-- [x] Publish first release on GitHub (tag v0.1.0, include changelog)
-- [x] Expand CI workflows: Add tests for IPM, linting (rustfmt, clippy), and cross-platform builds
-- [x] Add CONTRIBUTING.md: Guidelines for issues/PRs
-- [x] Monitor for scalability: Test on m=10^5+ graphs, fix any memory/time issues
-- [x] Solicit feedback: Add issue templates for bugs/feature requests aligned with paper
+### 6. Implement HSFC Updates and Re-Building Game (From Paper 1, Section 6 & Algorithm 6; Enhanced in Paper 2)
+Amortizes updates and rebuilds.
 
-# Phase II
+- [ ] Define HSFC properties: Circulations \(c(t)\), widths \(w(t)\), stability (doubles only on updated edges).
+- [ ] Implement lazy gradient/length updates using HSFC guarantees.
+- [ ] Code re-building game: Track round/fix counts per level, preemptively rebuild on thresholds, handle losses.
+- [ ] Add failure detection and bottom-up rebuilds (amortized \(O(m^{o(1)}(m + T))\)).
+- [ ] For derandomization: Apply recursive shifting to propagate updates only to active forests.
+- [ ] Test amortization: Simulate adversarial updates, measure rebuild frequency.
+- [ ] Integrate updates into the tree-chain query structure.
 
-### 1. Review and Integrate Derandomization Framework
+### 7. Integration, Optimization, and Testing for Full Almost-Linear Solver
+Brings everything together, ensures determinism, and verifies performance.
 
-- [x] Read and annotate the paper (arXiv:2309.16629) for key sections on derandomization, comparing to the original randomized framework in arXiv:2203.00671
-- [x] Update DESIGN_SPEC.md to include deterministic variants, highlighting differences in vertex and edge sparsification
-- [x] Modify IPM loop to support deterministic cycle finding, ensuring compatibility with existing randomized paths
-
-### 2. Implement Deterministic Vertex Sparsification
-
-- [x] Replace random tree sampling with deterministic hierarchical graph decomposition for vertex reduction
-- [x] Implement recursive decomposition algorithm to preserve connectivity for min-ratio cycle detection
-- [x] Add support for subpolynomial amortized updates in the decomposition structure
-- [x] Test vertex sparsification on small graphs for determinism and correctness against randomized version
-
-### 3. Implement Deterministic Dynamic Spanner for Edge Sparsification
-
-- [x] Develop dynamic spanner data structure to maintain sparse supergraph embeddings under edge insertions/deletions
-- [x] Ensure spanner preserves approximate distances with subpolynomial stretch
-- [x] Integrate amortized m^{o(1)} time per update for edge changes
-- [x] Verify spanner on dynamic graphs, comparing memory and time to original randomized spanner
-
-### 4. Enhance Dynamic Data Structures for Determinism
-
-- [x] Adapt tree-chain maintenance to use deterministic low-stretch spanning trees
-- [x] Implement fully dynamic low-stretch spanning tree with subpolynomial average stretch and update time
-- [x] Update circulation routing and min-ratio cycle finder to work with deterministic components
-- [x] Ensure handling of non-oblivious adversaries via deterministic rebuilding strategies
-
-### 5. Update Core Solver and API
-
-- [x] Wire deterministic path as optional/default in Rust core and Python API (e.g., flag for deterministic vs. randomized)
-- [x] Add support for polynomially bounded edge lengths in dynamic trees
-- [x] Implement max-flow and min-cost flow using the deterministic algorithm, verifying m^{1+o(1)} time bounds theoretically
-
-### 6. Testing and Validation
-
-- [x] Expand tests to include deterministic-specific cases, ensuring reproducibility (no randomness variance)
-- [x] Add benchmarks comparing deterministic vs. randomized versions on varying graph sizes
-- [x] Validate against original paper's theorems (e.g., main result for exact flows)
-- [x] Test stability guarantees from IPM with deterministic updates
-
-### 7. Documentation and Deployment
-
-- [x] Update README to document deterministic enhancements, usage flags, and performance claims
-- [x] Expand docs/ with notes on derandomization techniques and pseudocode adaptations
-- [x] Update TODO.md to track integration progress and mark related items
-- [x] Reference the derandomization paper (arXiv:2309.16629) in README.md, adding it to the References section
-- [x] Build and test updated PyPI package with deterministic features
-- [x] Publish release with deterministic support, including changelog highlighting improvements
+- [ ] Replace successive shortest path with IPM as default solver (toggle via flag).
+- [ ] Ensure full determinism by using Paper 2's shifting (no random sampling).
+- [ ] Optimize Rust code for large graphs (e.g., efficient data structures, parallelization if applicable).
+- [ ] Expand benchmarks: Compare runtimes vs. classical solver on large instances (aim for near-linear scaling).
+- [ ] Add unit/integration tests for new components (e.g., IPM convergence, derandomized forests).
+- [ ] Update docs (README, DESIGN_SPEC.md) with usage for the almost-linear mode.
+- [ ] Publish release on PyPI, fix any remaining TODOs (e.g., Clippy warnings).
