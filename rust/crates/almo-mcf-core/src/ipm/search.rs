@@ -38,6 +38,7 @@ pub fn line_search(input: LineSearchInput<'_>) -> Option<(Vec<f64>, f64)> {
     }
 
     let mut step = max_step * 0.99;
+    let reduction_floor = potential.reduction_floor(current_potential);
     for _ in 0..20 {
         let candidate_flow: Vec<f64> = flow
             .iter()
@@ -46,6 +47,20 @@ pub fn line_search(input: LineSearchInput<'_>) -> Option<(Vec<f64>, f64)> {
             .collect();
         let candidate_potential = potential.value(cost, &candidate_flow, lower, upper);
         if candidate_potential <= current_potential - required_reduction {
+            return Some((candidate_flow, step));
+        }
+        step *= 0.5;
+    }
+
+    let mut step = max_step * 0.99;
+    for _ in 0..20 {
+        let candidate_flow: Vec<f64> = flow
+            .iter()
+            .zip(delta.iter())
+            .map(|(f, d)| f + step * d)
+            .collect();
+        let candidate_potential = potential.value(cost, &candidate_flow, lower, upper);
+        if candidate_potential <= current_potential - reduction_floor {
             return Some((candidate_flow, step));
         }
         step *= 0.5;

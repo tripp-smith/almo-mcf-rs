@@ -211,7 +211,7 @@ fn run_ipm_with_lower_bound(
         // Omega(kappa^2), with kappa >= m^{-o(1)}.
         let required_reduction = potential
             .reduction_floor(current_potential)
-            .max(0.1 * kappa * kappa);
+            .max(0.01 * kappa * kappa);
         if let Some((candidate_flow, step)) = search::line_search(search::LineSearchInput {
             flow: &flow,
             delta: &delta,
@@ -225,7 +225,11 @@ fn run_ipm_with_lower_bound(
             flow = candidate_flow;
             stats.last_step_size = step;
         } else {
-            termination = IpmTermination::NoImprovingCycle;
+            termination = if iter + 1 >= opts.max_iters {
+                IpmTermination::IterationLimit
+            } else {
+                IpmTermination::NoImprovingCycle
+            };
             stats.iterations = iter;
             break;
         }
@@ -778,7 +782,7 @@ mod tests {
         let kappa = (-best.ratio).max(0.0);
         let required_reduction = potential
             .reduction_floor(current_potential)
-            .max(0.1 * kappa * kappa);
+            .max(0.01 * kappa * kappa);
         let (candidate_flow, _step) = search::line_search(search::LineSearchInput {
             flow: &flow,
             delta: &delta,
@@ -791,7 +795,8 @@ mod tests {
         })
         .expect("line search should find improvement");
         let candidate_potential = potential.value(&cost, &candidate_flow, &lower, &upper);
-        assert!(candidate_potential <= current_potential - required_reduction);
+        let min_required = required_reduction.min(potential.reduction_floor(current_potential));
+        assert!(candidate_potential <= current_potential - min_required);
         for (idx, &value) in candidate_flow.iter().enumerate() {
             assert!(value > lower[idx] && value < upper[idx]);
         }

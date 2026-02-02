@@ -105,7 +105,7 @@ impl Potential {
 
     pub fn kappa_floor(&self) -> f64 {
         let log_term = self.edge_count.ln().max(2.0);
-        log_term.powf(-0.5)
+        log_term.powf(-1.0)
     }
 }
 
