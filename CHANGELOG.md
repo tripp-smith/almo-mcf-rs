@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-04-15
+### Added
+- Deterministic solver pipeline with reproducible min-ratio cycles and sparsification updates.
+- Documentation updates covering deterministic usage flags and derandomization notes.
+
 ## [0.1.0] - 2026-02-01
 ### Added
 - Initial release of the almost-linear minimum-cost flow solver with IPM support.

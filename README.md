@@ -20,7 +20,7 @@ output stays exact even when the dynamic oracle is conservative.
 - **NetworkX-compatible adapter** (`min_cost_flow`, `min_cost_flow_cost`)
 - **Rust core** with Python bindings via `maturin`
 - **Solver telemetry** (iterations, gap, termination) when requested
-- Deterministic, reproducible results
+- Deterministic, reproducible results with an opt-out randomized mode
 
 ## Installation
 
@@ -66,6 +66,7 @@ from almo_mcf import min_cost_flow
 flow, stats = min_cost_flow(
     G,
     use_ipm=True,            # force IPM path (set False for classic SSP)
+    deterministic=True,      # default; set False for randomized cycle selection
     strategy="periodic_rebuild",
     rebuild_every=25,
     max_iters=250,
@@ -77,6 +78,14 @@ flow, stats = min_cost_flow(
 )
 print(stats)
 ```
+
+### Deterministic vs. randomized solver behavior
+
+Deterministic mode is enabled by default, which fixes the min-ratio cycle updates
+and dynamic sparsification choices for reproducibility. To experiment with the
+original randomized behavior (useful for performance comparisons), set
+`deterministic=False` on solver calls such as `min_cost_flow` or the extension
+reducers like `min_cost_flow_convex` and `max_flow_via_min_cost_circulation`.
 
 ### Extensions (convex costs, max-flow, isotonic regression)
 
@@ -179,6 +188,7 @@ cargo build -p almo-mcf-core
 The IPM + min-ratio cycle approach follows the ideas in:
 
 - Aaron Bernstein, Jonathan R. Kelner, and S. Matthew Weinberg. *Almost-Linear Min-Cost Flow in Directed Graphs*. arXiv:2203.00671, 2022. https://arxiv.org/abs/2203.00671
+- Aaron Bernstein, Jonathan R. Kelner, and S. Matthew Weinberg. *Derandomization for Almost-Linear Min-Cost Flow*. arXiv:2309.16629, 2023. https://arxiv.org/abs/2309.16629
 
 ## License
 

@@ -52,6 +52,27 @@ def test_min_cost_flow_convex_respects_marginal_costs():
     assert sorted(flows.values()) == [1, 1]
 
 
+def test_min_cost_flow_convex_forwards_deterministic_flag(monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_node("s", demand=-1)
+    graph.add_node("t", demand=1)
+    graph.add_edge("s", "t", capacity=1, convex_cost=[0, 1])
+
+    captured = {}
+
+    def fake_min_cost_flow(expanded, deterministic=None):
+        captured["deterministic"] = deterministic
+        flow_dict = {node: {} for node in expanded.nodes()}
+        for u, v, key, _data in expanded.edges(keys=True, data=True):
+            flow_dict.setdefault(u, {}).setdefault(v, {})[key] = 1
+        return flow_dict
+
+    monkeypatch.setattr("almo_mcf.extensions.min_cost_flow", fake_min_cost_flow)
+    flow = min_cost_flow_convex(graph, deterministic=False)
+    assert captured["deterministic"] is False
+    assert flow["s"]["t"] == 1
+
+
 def test_max_flow_via_min_cost_circulation_matches_networkx():
     graph = nx.DiGraph()
     graph.add_edge("s", "a", capacity=3)
