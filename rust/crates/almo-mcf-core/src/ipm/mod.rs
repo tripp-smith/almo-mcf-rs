@@ -43,6 +43,19 @@ pub struct FeasibleFlow {
     pub flow: Vec<f64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IpmRunKind {
+    Default,
+    CostScaling,
+    CapacityScaling,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IpmRunContext {
+    pub kind: IpmRunKind,
+    pub round: usize,
+}
+
 pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, McfError> {
     let base_flow = solve_feasible_flow_with_costs(
         problem.node_count,
@@ -58,6 +71,29 @@ pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, Mc
 }
 
 pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, McfError> {
+    run_ipm_with_context(
+        problem,
+        opts,
+        IpmRunContext {
+            kind: IpmRunKind::Default,
+            round: 0,
+        },
+    )
+}
+
+pub fn run_ipm_with_context(
+    problem: &McfProblem,
+    opts: &McfOptions,
+    context: IpmRunContext,
+) -> Result<IpmResult, McfError> {
+    let mut adjusted_opts = opts.clone();
+    if matches!(
+        context.kind,
+        IpmRunKind::CostScaling | IpmRunKind::CapacityScaling
+    ) {
+        adjusted_opts.tolerance = (adjusted_opts.tolerance * 10.0).max(1e-8);
+    }
+
     let mut bounds = CostBounds::new(problem)?;
     let mut best: Option<IpmResult> = None;
     let max_search_iters = 48;
@@ -67,7 +103,7 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
             break;
         }
         let mid = bounds.midpoint();
-        let result = run_ipm_with_lower_bound(problem, opts, mid as f64)?;
+        let result = run_ipm_with_lower_bound(problem, &adjusted_opts, mid as f64)?;
         let final_cost = flow_cost(&result.flow, &problem.cost);
 
         if result.termination == IpmTermination::Converged && final_cost <= mid as f64 {
@@ -86,10 +122,10 @@ pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, Mcf
         return Ok(best);
     }
 
-    run_ipm_with_lower_bound(problem, opts, bounds.high as f64)
+    run_ipm_with_lower_bound(problem, &adjusted_opts, bounds.high as f64)
 }
 
-fn run_ipm_with_lower_bound(
+pub(crate) fn run_ipm_with_lower_bound(
     problem: &McfProblem,
     opts: &McfOptions,
     cost_lower_bound: f64,

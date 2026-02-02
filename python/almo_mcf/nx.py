@@ -114,10 +114,29 @@ def _scale_problem(
     return lower, upper, cost, demand, capacity_scale
 
 
+def _should_use_scaling(
+    lower: list[int],
+    upper: list[int],
+    cost: list[int],
+    demand: list[int],
+    use_scaling: bool | None,
+) -> bool:
+    if use_scaling is False:
+        return False
+    if use_scaling is True:
+        return True
+    edge_count = max(1, len(cost))
+    bound = edge_count**3
+    max_capacity = max([abs(v) for v in lower + upper + demand] or [0])
+    max_cost = max([abs(v) for v in cost] or [0])
+    return max_capacity > bound or max_cost > bound
+
+
 def min_cost_flow(
     G,
     *,
     use_ipm: bool | None = None,
+    use_scaling: bool | None = None,
     strategy: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
@@ -145,13 +164,35 @@ def min_cost_flow(
         deterministic: When True, disable randomized cycle selection for reproducibility.
             Defaults to True for deterministic solver behavior.
         return_stats: When True, return (flow_dict, ipm_stats).
+        use_scaling: When True, always apply scaling. When False, never apply scaling.
+            Defaults to auto-detect based on U/C bounds.
     """
     core = _load_core()
     tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
     lower, upper, cost, demand, capacity_scale = _scale_problem(lower, upper, cost, demand)
+    use_scaling = _should_use_scaling(lower, upper, cost, demand, use_scaling)
     if deterministic is None:
         deterministic = True
-    if hasattr(core, "min_cost_flow_edges_with_options"):
+    if use_scaling and hasattr(core, "min_cost_flow_edges_with_scaling"):
+        flow, stats = core.min_cost_flow_edges_with_scaling(
+            len(index),
+            np.asarray(tails, dtype=np.int64),
+            np.asarray(heads, dtype=np.int64),
+            np.asarray(lower, dtype=np.int64),
+            np.asarray(upper, dtype=np.int64),
+            np.asarray(cost, dtype=np.int64),
+            np.asarray(demand, dtype=np.int64),
+            strategy=strategy,
+            rebuild_every=rebuild_every,
+            max_iters=max_iters,
+            tolerance=tolerance,
+            seed=seed,
+            threads=threads,
+            alpha=alpha,
+            approx_factor=approx_factor,
+            deterministic=deterministic,
+        )
+    elif hasattr(core, "min_cost_flow_edges_with_options"):
         flow, stats = core.min_cost_flow_edges_with_options(
             len(index),
             np.asarray(tails, dtype=np.int64),
@@ -168,6 +209,7 @@ def min_cost_flow(
             threads=threads,
             alpha=alpha,
             use_ipm=use_ipm,
+            use_scaling=use_scaling,
             approx_factor=approx_factor,
             deterministic=deterministic,
         )
@@ -196,6 +238,39 @@ def min_cost_flow(
     if return_stats:
         return flow_dict, stats
     return flow_dict
+
+
+def min_cost_flow_scaled(
+    G,
+    *,
+    use_ipm: bool | None = None,
+    strategy: str | None = None,
+    rebuild_every: int | None = None,
+    max_iters: int | None = None,
+    tolerance: float | None = None,
+    seed: int | None = None,
+    threads: int | None = None,
+    alpha: float | None = None,
+    approx_factor: float | None = None,
+    deterministic: bool | None = None,
+    return_stats: bool = False,
+) -> FlowDict | MultiFlowDict | tuple[FlowDict | MultiFlowDict, dict | None]:
+    """Run the min-cost flow solver with scaling enabled."""
+    return min_cost_flow(
+        G,
+        use_ipm=use_ipm,
+        use_scaling=True,
+        strategy=strategy,
+        rebuild_every=rebuild_every,
+        max_iters=max_iters,
+        tolerance=tolerance,
+        seed=seed,
+        threads=threads,
+        alpha=alpha,
+        approx_factor=approx_factor,
+        deterministic=deterministic,
+        return_stats=return_stats,
+    )
 
 
 def min_cost_flow_cost(G, flow_dict: FlowDict | MultiFlowDict) -> int:

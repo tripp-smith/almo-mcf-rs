@@ -70,6 +70,7 @@ fn build_options(
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
+    use_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<McfOptions> {
@@ -96,6 +97,9 @@ fn build_options(
     }
     if let Some(value) = use_ipm {
         opts.use_ipm = Some(value);
+    }
+    if let Some(value) = use_scaling {
+        opts.use_scaling = Some(value);
     }
     if let Some(value) = approx_factor {
         if value < 0.0 {
@@ -188,6 +192,7 @@ fn min_cost_flow_edges(
     threads = None,
     alpha = None,
     use_ipm = None,
+    use_scaling = None,
     approx_factor = None,
     deterministic = None
 ))]
@@ -208,6 +213,7 @@ fn min_cost_flow_edges_with_options(
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
+    use_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
@@ -221,6 +227,7 @@ fn min_cost_flow_edges_with_options(
         threads,
         alpha,
         use_ipm,
+        use_scaling,
         approx_factor,
         deterministic,
     )?;
@@ -260,7 +267,81 @@ fn min_cost_flow_edges_with_options(
     seed = None,
     threads = None,
     alpha = None,
+    approx_factor = None,
+    deterministic = None
+))]
+fn min_cost_flow_edges_with_scaling(
+    py: Python<'_>,
+    n: usize,
+    tail: PyReadonlyArray1<'_, i64>,
+    head: PyReadonlyArray1<'_, i64>,
+    lower: PyReadonlyArray1<'_, i64>,
+    upper: PyReadonlyArray1<'_, i64>,
+    cost: PyReadonlyArray1<'_, i64>,
+    demand: PyReadonlyArray1<'_, i64>,
+    strategy: Option<String>,
+    rebuild_every: Option<usize>,
+    max_iters: Option<usize>,
+    tolerance: Option<f64>,
+    seed: Option<u64>,
+    threads: Option<usize>,
+    alpha: Option<f64>,
+    approx_factor: Option<f64>,
+    deterministic: Option<bool>,
+) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
+    let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
+    let mut opts = build_options(
+        strategy,
+        rebuild_every,
+        max_iters,
+        tolerance,
+        seed,
+        threads,
+        alpha,
+        None,
+        Some(true),
+        approx_factor,
+        deterministic,
+    )?;
+    opts.use_scaling = Some(true);
+
+    let solution = min_cost_flow_exact(&problem, &opts)
+        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+    let stats = if let Some(ipm_stats) = solution.ipm_stats {
+        Some(stats_to_dict(
+            py,
+            ipm_stats.termination,
+            ipm_stats.iterations,
+            ipm_stats.final_gap,
+        )?)
+    } else {
+        None
+    };
+
+    Ok((PyArray1::from_vec_bound(py, solution.flow).unbind(), stats))
+}
+
+#[allow(clippy::too_many_arguments, clippy::useless_conversion)]
+#[pyfunction]
+#[pyo3(signature = (
+    n,
+    tail,
+    head,
+    lower,
+    upper,
+    cost,
+    demand,
+    *,
+    strategy = None,
+    rebuild_every = None,
+    max_iters = None,
+    tolerance = None,
+    seed = None,
+    threads = None,
+    alpha = None,
     use_ipm = None,
+    use_scaling = None,
     approx_factor = None,
     deterministic = None
 ))]
@@ -281,6 +362,7 @@ fn run_ipm_edges(
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
+    use_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<f64>>, PyObject)> {
@@ -294,6 +376,7 @@ fn run_ipm_edges(
         threads,
         alpha,
         use_ipm,
+        use_scaling,
         approx_factor,
         deterministic,
     )?;
@@ -317,6 +400,7 @@ fn _core(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add_function(wrap_pyfunction!(min_cost_flow_edges, module)?)?;
     module.add_function(wrap_pyfunction!(min_cost_flow_edges_with_options, module)?)?;
+    module.add_function(wrap_pyfunction!(min_cost_flow_edges_with_scaling, module)?)?;
     module.add_function(wrap_pyfunction!(run_ipm_edges, module)?)?;
     module.add("__doc__", "Rust core bindings for almo-mcf")?;
     module.add(
@@ -324,6 +408,7 @@ fn _core(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         vec![
             "min_cost_flow_edges",
             "min_cost_flow_edges_with_options",
+            "min_cost_flow_edges_with_scaling",
             "run_ipm_edges",
             "__version__",
         ],
