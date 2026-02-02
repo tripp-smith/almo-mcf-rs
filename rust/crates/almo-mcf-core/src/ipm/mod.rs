@@ -212,16 +212,16 @@ fn run_ipm_with_lower_bound(
         let required_reduction = potential
             .reduction_floor(current_potential)
             .max(0.1 * kappa * kappa);
-        if let Some((candidate_flow, step)) = search::line_search(
-            &flow,
-            &delta,
-            &cost,
-            &lower,
-            &upper,
-            &potential,
+        if let Some((candidate_flow, step)) = search::line_search(search::LineSearchInput {
+            flow: &flow,
+            delta: &delta,
+            cost: &cost,
+            lower: &lower,
+            upper: &upper,
+            potential: &potential,
             current_potential,
             required_reduction,
-        ) {
+        }) {
             flow = candidate_flow;
             stats.last_step_size = step;
         } else {
@@ -779,16 +779,16 @@ mod tests {
         let required_reduction = potential
             .reduction_floor(current_potential)
             .max(0.1 * kappa * kappa);
-        let (candidate_flow, _step) = search::line_search(
-            &flow,
-            &delta,
-            &cost,
-            &lower,
-            &upper,
-            &potential,
+        let (candidate_flow, _step) = search::line_search(search::LineSearchInput {
+            flow: &flow,
+            delta: &delta,
+            cost: &cost,
+            lower: &lower,
+            upper: &upper,
+            potential: &potential,
             current_potential,
             required_reduction,
-        )
+        })
         .expect("line search should find improvement");
         let candidate_potential = potential.value(&cost, &candidate_flow, &lower, &upper);
         assert!(candidate_potential <= current_potential - required_reduction);

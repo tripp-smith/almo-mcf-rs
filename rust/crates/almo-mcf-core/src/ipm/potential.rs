@@ -173,7 +173,8 @@ mod tests {
         let cost = vec![2.0];
         let potential = Potential::new_with_lower_bound(&upper, Some(0.5), Some(0.5), 1, 0.0);
 
-        let gap = (cost[0] * flow[0]).max(potential.rounding_threshold());
+        let base_cost: f64 = cost[0] * flow[0];
+        let gap = base_cost.max(potential.rounding_threshold());
         let upper_slack = (upper[0] - flow[0]).max(potential.min_delta);
         let lower_slack = (flow[0] - lower[0]).max(potential.min_delta);
         let expected_barrier = 0.5 * upper_slack.powf(-1.5) - 0.5 * lower_slack.powf(-1.5);
