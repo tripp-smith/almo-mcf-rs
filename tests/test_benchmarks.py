@@ -71,3 +71,50 @@ def test_networkx_benchmark(benchmark) -> None:
         return nx.min_cost_flow(graph)
 
     benchmark.pedantic(run, rounds=1, iterations=1)
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_BENCHMARKS") != "1", reason="benchmarks disabled by default"
+)
+@pytest.mark.parametrize(
+    ("node_count", "edge_count"),
+    [(12, 60), (20, 120)],
+)
+def test_deterministic_vs_randomized_benchmark(
+    benchmark, node_count: int, edge_count: int
+) -> None:
+    graph = build_benchmark_graph(node_count, edge_count)
+
+    def run_deterministic() -> dict:
+        return min_cost_flow(
+            graph,
+            use_ipm=True,
+            deterministic=True,
+            strategy="periodic_rebuild",
+            rebuild_every=2,
+            max_iters=50,
+            tolerance=1e-6,
+            seed=11,
+            threads=2,
+            alpha=0.0005,
+        )
+
+    def run_randomized() -> dict:
+        return min_cost_flow(
+            graph,
+            use_ipm=True,
+            deterministic=False,
+            strategy="periodic_rebuild",
+            rebuild_every=2,
+            max_iters=50,
+            tolerance=1e-6,
+            seed=11,
+            threads=2,
+            alpha=0.0005,
+        )
+
+    flow = benchmark.pedantic(run_deterministic, rounds=1, iterations=1)
+    randomized_flow = benchmark.pedantic(run_randomized, rounds=1, iterations=1)
+    nx_flow = nx.min_cost_flow(graph)
+    assert nx.cost_of_flow(graph, flow) == nx.cost_of_flow(graph, nx_flow)
+    assert nx.cost_of_flow(graph, randomized_flow) == nx.cost_of_flow(graph, nx_flow)

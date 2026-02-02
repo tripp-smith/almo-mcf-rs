@@ -87,10 +87,10 @@
 
 ### 6. Testing and Validation
 
-- [ ] Expand tests to include deterministic-specific cases, ensuring reproducibility (no randomness variance)
-- [ ] Add benchmarks comparing deterministic vs. randomized versions on varying graph sizes
-- [ ] Validate against original paper's theorems (e.g., main result for exact flows)
-- [ ] Test stability guarantees from IPM with deterministic updates
+- [x] Expand tests to include deterministic-specific cases, ensuring reproducibility (no randomness variance)
+- [x] Add benchmarks comparing deterministic vs. randomized versions on varying graph sizes
+- [x] Validate against original paper's theorems (e.g., main result for exact flows)
+- [x] Test stability guarantees from IPM with deterministic updates
 
 ### 7. Documentation and Deployment
 
