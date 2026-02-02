@@ -153,3 +153,25 @@ def test_use_ipm_flag_toggles_solver_path():
     )
     assert stats is not None
     _assert_flow_integral(graph, flow)
+
+
+def test_ipm_deterministic_updates_produce_stable_stats():
+    graph = _build_large_graph()
+    flow, stats = min_cost_flow(
+        graph,
+        use_ipm=True,
+        deterministic=True,
+        max_iters=15,
+        tolerance=1e-6,
+        seed=123,
+        return_stats=True,
+    )
+    assert stats is not None
+    assert stats["termination"] in {
+        "converged",
+        "iteration_limit",
+        "time_limit",
+        "no_improving_cycle",
+    }
+    assert np.isfinite(stats["final_gap"])
+    _assert_flow_integral(graph, flow)
