@@ -61,4 +61,5 @@ def test_matches_networkx_cost_with_ipm_options():
         return_stats=True,
     )
     assert stats is not None
+    assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
     assert min_cost_flow_cost(G, flow) == nx.cost_of_flow(G, nx_flow)

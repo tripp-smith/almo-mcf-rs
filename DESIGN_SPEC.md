@@ -80,6 +80,15 @@ The derandomization framework in arXiv:2309.16629 describes deterministic replac
 
 These notes are captured in `docs/derandomization.md`, which tracks the key paper comparisons and highlights the deterministic invariants we maintain in the IPM loop. 
 
+### Solver modes and integration flags
+
+The public solver entry points expose a `use_ipm` flag (to force IPM vs classic
+SSP) and a `deterministic` flag (to disable randomized sampling in the
+min-ratio cycle oracle). To make integration/debugging easier, solver outputs
+carry a `solver_mode` label (`ipm`, `ipm_scaled`, `classic`, or
+`classic_fallback`) so downstream tooling can log when the IPM loop or scaling
+pipeline was used.
+
 ## Architecture
 
 ### Repository layout

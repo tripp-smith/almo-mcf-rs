@@ -28,6 +28,7 @@ pub struct McfSolution {
     pub flow: Vec<i64>,
     pub cost: i128,
     pub ipm_stats: Option<IpmSummary>,
+    pub solver_mode: SolverMode,
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +42,14 @@ pub struct IpmSummary {
 pub enum Strategy {
     FullDynamic,
     PeriodicRebuild { rebuild_every: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverMode {
+    Classic,
+    Ipm,
+    IpmScaled,
+    ClassicFallback,
 }
 
 #[derive(Debug, Clone)]
@@ -162,7 +171,7 @@ pub fn min_cost_flow_exact(
         return scaling::solve_mcf_with_scaling(problem, opts);
     }
     if should_use_classic(problem, opts) {
-        return solve_classic(problem);
+        return solve_classic_with_mode(problem, SolverMode::Classic);
     }
 
     let ipm_result = match ipm::run_ipm(problem, opts) {
@@ -171,7 +180,7 @@ pub fn min_cost_flow_exact(
             if matches!(err, McfError::InvalidInput(_)) {
                 return Err(err);
             }
-            return solve_classic(problem).or(Err(err));
+            return solve_classic_with_mode(problem, SolverMode::ClassicFallback).or(Err(err));
         }
     };
     let ipm_stats = Some(IpmSummary::from_ipm(
@@ -242,6 +251,13 @@ fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
 }
 
 fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
+    solve_classic_with_mode(problem, SolverMode::Classic)
+}
+
+fn solve_classic_with_mode(
+    problem: &McfProblem,
+    solver_mode: SolverMode,
+) -> Result<McfSolution, McfError> {
     let n = problem.node_count;
     let m = problem.edge_count();
 
@@ -311,6 +327,7 @@ fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
         flow,
         cost,
         ipm_stats: None,
+        solver_mode,
     })
 }
 
@@ -330,14 +347,14 @@ pub(crate) fn finalize_ipm_solution(
     ipm_stats: Option<IpmSummary>,
 ) -> Result<McfSolution, McfError> {
     if ipm_result.termination != IpmTermination::Converged {
-        let mut solution = solve_classic(problem)?;
+        let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
         solution.ipm_stats = ipm_stats;
         return Ok(solution);
     }
 
     let gap_threshold = rounding_gap_threshold(problem);
     if ipm_result.stats.last_gap > gap_threshold {
-        let mut solution = solve_classic(problem)?;
+        let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
         solution.ipm_stats = ipm_stats;
         return Ok(solution);
     }
@@ -346,7 +363,7 @@ pub(crate) fn finalize_ipm_solution(
         Ok(solution) => solution,
         Err(err) => {
             if matches!(err, McfError::Infeasible) {
-                let mut solution = solve_classic(problem)?;
+                let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
                 solution.ipm_stats = ipm_stats;
                 return Ok(solution);
             }
@@ -355,6 +372,7 @@ pub(crate) fn finalize_ipm_solution(
     };
     let mut solution = rounded;
     solution.ipm_stats = ipm_stats;
+    solution.solver_mode = SolverMode::Ipm;
     Ok(solution)
 }
 
@@ -387,6 +405,7 @@ mod tests {
         assert_eq!(solution.flow, vec![0, 3, 0]);
         assert_eq!(solution.cost, 3);
         assert!(solution.ipm_stats.is_none());
+        assert_eq!(solution.solver_mode, SolverMode::Classic);
     }
 
     #[test]
@@ -402,6 +421,7 @@ mod tests {
         assert_eq!(solution.flow, vec![3, 3]);
         assert_eq!(solution.cost, 9);
         assert!(solution.ipm_stats.is_none());
+        assert_eq!(solution.solver_mode, SolverMode::Classic);
     }
 
     #[test]
@@ -417,6 +437,7 @@ mod tests {
         assert_eq!(solution.flow, vec![1, 2]);
         assert_eq!(solution.cost, 7);
         assert!(solution.ipm_stats.is_none());
+        assert_eq!(solution.solver_mode, SolverMode::Classic);
     }
 
     #[test]

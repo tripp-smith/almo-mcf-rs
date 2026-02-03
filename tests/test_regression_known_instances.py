@@ -21,4 +21,5 @@ def test_regression_instances_use_ipm_options():
             return_stats=True,
         )
         assert stats is not None
+        assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
         assert min_cost_flow_cost(graph, flow) == nx.cost_of_flow(graph, nx_flow)

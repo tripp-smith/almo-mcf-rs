@@ -60,6 +60,7 @@ def test_large_graph_ipm_smoke() -> None:
             return_stats=True,
         )
         assert stats is not None
+        assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
         assert stats["termination"] in {
             "converged",
             "iteration_limit",

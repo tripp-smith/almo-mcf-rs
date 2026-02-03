@@ -81,6 +81,25 @@ flow, stats = min_cost_flow(
 print(stats)
 ```
 
+### Almost-Linear Mode
+
+The solver defaults to the almost-linear IPM path on larger instances. The
+`use_ipm` flag forces the solver path, while `deterministic=True` disables
+randomized sampling in the dynamic oracle to match the derandomized pipeline
+from Paper 2. When `return_stats=True`, the stats dictionary includes a
+`solver_mode` key so you can log whether the run used `ipm`, `ipm_scaled`,
+`classic`, or `classic_fallback`.
+
+```python
+flow, stats = min_cost_flow(
+    G,
+    use_ipm=True,       # prefer IPM for large graphs
+    deterministic=True, # reproducible shifting instead of random sampling
+    return_stats=True,
+)
+print(stats["solver_mode"])
+```
+
 ### Scaling for large capacity/cost bounds
 
 When inputs contain very large capacities or costs, the solver automatically

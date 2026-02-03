@@ -1,5 +1,5 @@
 use crate::graph::min_cost_flow::MinCostFlow;
-use crate::{McfError, McfProblem, McfSolution};
+use crate::{McfError, McfProblem, McfSolution, SolverMode};
 
 const FRACTIONAL_EPS: f64 = 1e-9;
 
@@ -128,6 +128,7 @@ pub fn round_fractional_flow(
             flow: residual.base_flow,
             cost,
             ipm_stats: None,
+            solver_mode: SolverMode::Classic,
         });
     }
 
@@ -186,6 +187,7 @@ pub fn round_fractional_flow(
         flow,
         cost,
         ipm_stats: None,
+        solver_mode: SolverMode::Classic,
     })
 }
 
