@@ -83,6 +83,10 @@ impl HSFCSequence {
         self.witnesses.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.witnesses.is_empty()
+    }
+
     pub fn latest(&self) -> &HSFCWitness {
         self.witnesses
             .last()
