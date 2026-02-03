@@ -35,7 +35,7 @@ pub struct DecrementalSpannerParams {
 }
 
 #[derive(Debug, Clone)]
-struct LayerEdge {
+pub struct LayerEdge {
     u: usize,
     v: usize,
     length: f64,
@@ -123,9 +123,7 @@ impl LSForest {
                 queue.push_back(neighbor);
             }
         }
-        if parent[end].is_none() {
-            return None;
-        }
+        parent[end]?;
         let mut path = Vec::new();
         let mut current = end;
         while current != start {
@@ -376,10 +374,7 @@ impl DecrementalSpanner {
             self.base_edge_map.clear();
             for (edge_id, edge) in level0.edges.iter().enumerate() {
                 let key = ordered_pair(edge.u, edge.v);
-                self.base_edge_map
-                    .entry(key)
-                    .or_insert_with(Vec::new)
-                    .push(edge_id);
+                self.base_edge_map.entry(key).or_default().push(edge_id);
             }
         }
     }
@@ -409,7 +404,7 @@ impl DecrementalSpanner {
         level0.sparse_adjacency[v].push(edge_id);
         self.base_edge_map
             .entry(ordered_pair(u, v))
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(edge_id);
     }
 
@@ -504,9 +499,7 @@ impl DecrementalSpanner {
                 queue.push_back(next);
             }
         }
-        if parent_node[end].is_none() {
-            return None;
-        }
+        parent_node[end]?;
         let mut path = Vec::new();
         let mut current = end;
         while current != start {
@@ -634,8 +627,8 @@ fn sparsify_layer(
     let mut sparse_edges = Vec::new();
     let mut sparse_adjacency = vec![Vec::new(); node_count];
     let mut seen = HashSet::new();
-    for node in 0..node_count {
-        let mut neighbors: Vec<usize> = adjacency[node].clone();
+    for (node, neighbors) in adjacency.iter().enumerate().take(node_count) {
+        let mut neighbors: Vec<usize> = neighbors.clone();
         if !deterministic {
             neighbors.reverse();
         }
@@ -667,12 +660,10 @@ fn sparsify_layer(
         if cluster == usize::MAX {
             continue;
         }
-        if cluster_seen.insert(cluster) {
-            if seen.insert(edge_id) {
-                sparse_edges.push(edge_id);
-                sparse_adjacency[edge.u].push(edge_id);
-                sparse_adjacency[edge.v].push(edge_id);
-            }
+        if cluster_seen.insert(cluster) && seen.insert(edge_id) {
+            sparse_edges.push(edge_id);
+            sparse_adjacency[edge.u].push(edge_id);
+            sparse_adjacency[edge.v].push(edge_id);
         }
     }
 
@@ -775,7 +766,7 @@ mod tests {
         params.batch_size = 1;
         let mut spanner = DecrementalSpanner::new(3, &tails, &heads, &lengths, params);
         let _ = spanner.apply_batch_updates(vec![(0, 1)], Vec::new(), Vec::new());
-        assert!(spanner.rebuilds >= 0);
+        assert!(spanner.rebuilds <= spanner.total_updates);
     }
 
     #[test]
@@ -806,6 +797,6 @@ mod tests {
         };
         let params = DecrementalSpannerParams::from_graph(3, 2);
         let spanner = build_spanner_on_core(&core, &forest, params);
-        assert!(spanner.levels.len() >= 1);
+        assert!(!spanner.levels.is_empty());
     }
 }
