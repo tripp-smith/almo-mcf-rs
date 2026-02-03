@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Deterministic solver pipeline with reproducible min-ratio cycles and sparsification updates.
 - Documentation updates covering deterministic usage flags and derandomization notes.
+- Solver stats now include a solver_mode label for IPM/classic path tracking.
 
 ## [0.1.0] - 2026-02-01
 ### Added

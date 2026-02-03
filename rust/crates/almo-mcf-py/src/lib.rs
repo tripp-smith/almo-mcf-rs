@@ -1,7 +1,7 @@
 #![allow(clippy::useless_conversion)]
 
 use almo_mcf_core::ipm::IpmTermination;
-use almo_mcf_core::{ipm, min_cost_flow_exact, McfOptions, McfProblem, Strategy};
+use almo_mcf_core::{ipm, min_cost_flow_exact, McfOptions, McfProblem, SolverMode, Strategy};
 use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -135,22 +135,37 @@ fn build_options(
     Ok(opts)
 }
 
+fn solver_mode_label(mode: SolverMode) -> &'static str {
+    match mode {
+        SolverMode::Classic => "classic",
+        SolverMode::Ipm => "ipm",
+        SolverMode::IpmScaled => "ipm_scaled",
+        SolverMode::ClassicFallback => "classic_fallback",
+    }
+}
+
 fn stats_to_dict(
     py: Python<'_>,
-    termination: IpmTermination,
-    iterations: usize,
-    final_gap: f64,
+    solver_mode: SolverMode,
+    ipm_stats: Option<(IpmTermination, usize, f64)>,
 ) -> PyResult<PyObject> {
     let dict = PyDict::new_bound(py);
+    dict.set_item("solver_mode", solver_mode_label(solver_mode))?;
+    let (termination_label, iterations, final_gap) =
+        if let Some((termination, iterations, final_gap)) = ipm_stats {
+            let termination_label = match termination {
+                IpmTermination::Converged => "converged",
+                IpmTermination::IterationLimit => "iteration_limit",
+                IpmTermination::TimeLimit => "time_limit",
+                IpmTermination::NoImprovingCycle => "no_improving_cycle",
+            };
+            (termination_label, iterations, final_gap)
+        } else {
+            ("classic", 0, 0.0)
+        };
+    dict.set_item("termination", termination_label)?;
     dict.set_item("iterations", iterations)?;
     dict.set_item("final_gap", final_gap)?;
-    let termination_label = match termination {
-        IpmTermination::Converged => "converged",
-        IpmTermination::IterationLimit => "iteration_limit",
-        IpmTermination::TimeLimit => "time_limit",
-        IpmTermination::NoImprovingCycle => "no_improving_cycle",
-    };
-    dict.set_item("termination", termination_label)?;
     Ok(dict.to_object(py))
 }
 
@@ -235,16 +250,13 @@ fn min_cost_flow_edges_with_options(
     let solution = min_cost_flow_exact(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
 
-    let stats = if let Some(ipm_stats) = solution.ipm_stats {
-        Some(stats_to_dict(
-            py,
-            ipm_stats.termination,
-            ipm_stats.iterations,
-            ipm_stats.final_gap,
-        )?)
-    } else {
-        None
-    };
+    let stats = Some(stats_to_dict(
+        py,
+        solution.solver_mode,
+        solution
+            .ipm_stats
+            .map(|stats| (stats.termination, stats.iterations, stats.final_gap)),
+    )?);
 
     Ok((PyArray1::from_vec_bound(py, solution.flow).unbind(), stats))
 }
@@ -308,16 +320,13 @@ fn min_cost_flow_edges_with_scaling(
     let solution = min_cost_flow_exact(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
 
-    let stats = if let Some(ipm_stats) = solution.ipm_stats {
-        Some(stats_to_dict(
-            py,
-            ipm_stats.termination,
-            ipm_stats.iterations,
-            ipm_stats.final_gap,
-        )?)
-    } else {
-        None
-    };
+    let stats = Some(stats_to_dict(
+        py,
+        solution.solver_mode,
+        solution
+            .ipm_stats
+            .map(|stats| (stats.termination, stats.iterations, stats.final_gap)),
+    )?);
 
     Ok((PyArray1::from_vec_bound(py, solution.flow).unbind(), stats))
 }
@@ -385,9 +394,12 @@ fn run_ipm_edges(
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
     let stats = stats_to_dict(
         py,
-        ipm_result.termination,
-        ipm_result.stats.iterations,
-        ipm_result.stats.last_gap,
+        SolverMode::Ipm,
+        Some((
+            ipm_result.termination,
+            ipm_result.stats.iterations,
+            ipm_result.stats.last_gap,
+        )),
     )?;
     Ok((
         PyArray1::from_vec_bound(py, ipm_result.flow).unbind(),

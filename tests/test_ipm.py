@@ -57,7 +57,8 @@ def test_ipm_rounding_produces_integral_flow():
         return_stats=True,
     )
     assert stats is not None
-    assert set(stats.keys()) >= {"iterations", "final_gap", "termination"}
+    assert set(stats.keys()) >= {"iterations", "final_gap", "termination", "solver_mode"}
+    assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
     _assert_flow_integral(graph, flow)
     assert min_cost_flow_cost(graph, flow) == nx.cost_of_flow(graph, nx.min_cost_flow(graph))
 
@@ -90,6 +91,7 @@ def test_run_ipm_full_dynamic_emits_stats():
         alpha=0.0005,
     )
     assert flow.shape[0] == len(edges)
+    assert stats["solver_mode"] == "ipm"
     assert stats["termination"] in {
         "converged",
         "iteration_limit",
@@ -127,6 +129,7 @@ def test_run_ipm_periodic_rebuild_emits_stats():
         alpha=0.0005,
     )
     assert flow.shape[0] == len(edges)
+    assert stats["solver_mode"] == "ipm"
     assert stats["termination"] in {
         "converged",
         "iteration_limit",
@@ -142,7 +145,8 @@ def test_use_ipm_flag_toggles_solver_path():
         use_ipm=False,
         return_stats=True,
     )
-    assert stats is None
+    assert stats is not None
+    assert stats["solver_mode"] == "classic"
     _assert_flow_integral(graph, flow)
 
     flow, stats = min_cost_flow(
@@ -152,6 +156,7 @@ def test_use_ipm_flag_toggles_solver_path():
         return_stats=True,
     )
     assert stats is not None
+    assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
     _assert_flow_integral(graph, flow)
 
 
@@ -167,6 +172,7 @@ def test_ipm_deterministic_updates_produce_stable_stats():
         return_stats=True,
     )
     assert stats is not None
+    assert stats["solver_mode"] in {"ipm", "classic_fallback", "ipm_scaled"}
     assert stats["termination"] in {
         "converged",
         "iteration_limit",

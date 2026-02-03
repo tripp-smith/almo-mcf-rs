@@ -135,7 +135,13 @@ def min_cost_flow_edges_with_options(
         deterministic,
     )
     flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand)
-    return flows, None
+    stats = {
+        "solver_mode": "classic",
+        "iterations": 0,
+        "final_gap": 0.0,
+        "termination": "classic",
+    }
+    return flows, stats
 
 
 def run_ipm_edges(
@@ -172,5 +178,10 @@ def run_ipm_edges(
         deterministic,
     )
     flows = min_cost_flow_edges(n, tail, head, lower, upper, cost, demand).astype(float)
-    stats = {"iterations": 0, "final_gap": 0.0, "termination": "fallback"}
+    stats = {
+        "solver_mode": "ipm",
+        "iterations": 0,
+        "final_gap": 0.0,
+        "termination": "fallback",
+    }
     return flows, stats

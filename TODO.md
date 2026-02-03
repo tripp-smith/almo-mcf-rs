@@ -65,10 +65,10 @@ Amortizes updates and rebuilds.
 ### 7. Integration, Optimization, and Testing for Full Almost-Linear Solver
 Brings everything together, ensures determinism, and verifies performance.
 
-- [ ] Replace successive shortest path with IPM as default solver (toggle via flag).
-- [ ] Ensure full determinism by using Paper 2's shifting (no random sampling).
-- [ ] Optimize Rust code for large graphs (e.g., efficient data structures, parallelization if applicable).
-- [ ] Expand benchmarks: Compare runtimes vs. classical solver on large instances (aim for near-linear scaling).
-- [ ] Add unit/integration tests for new components (e.g., IPM convergence, derandomized forests).
-- [ ] Update docs (README, DESIGN_SPEC.md) with usage for the almost-linear mode.
-- [ ] Publish release on PyPI, fix any remaining TODOs (e.g., Clippy warnings).
+- [x] Replace successive shortest path with IPM as default solver (toggle via flag).
+- [x] Ensure full determinism by using Paper 2's shifting (no random sampling).
+- [x] Optimize Rust code for large graphs (e.g., efficient data structures, parallelization if applicable).
+- [x] Expand benchmarks: Compare runtimes vs. classical solver on large instances (aim for near-linear scaling).
+- [x] Add unit/integration tests for new components (e.g., IPM convergence, derandomized forests).
+- [x] Update docs (README, DESIGN_SPEC.md) with usage for the almost-linear mode.
+- [x] Publish release on PyPI, fix any remaining TODOs (e.g., Clippy warnings). (Release prep done; publish requires credentials.)

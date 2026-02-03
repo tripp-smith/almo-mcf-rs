@@ -1,5 +1,7 @@
 use crate::ipm::{self, IpmResult, IpmRunContext, IpmRunKind, IpmTermination};
-use crate::{finalize_ipm_solution, IpmSummary, McfError, McfOptions, McfProblem, McfSolution};
+use crate::{
+    finalize_ipm_solution, IpmSummary, McfError, McfOptions, McfProblem, McfSolution, SolverMode,
+};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
 use std::time::Instant;
@@ -62,6 +64,7 @@ pub fn solve_mcf_with_scaling(
         ipm_result.termination,
     ));
     let mut solution = finalize_ipm_solution(&capacity.scaled_problem, ipm_result, ipm_stats)?;
+    solution.solver_mode = SolverMode::IpmScaled;
 
     if capacity.scale_factor != 1 {
         for flow in &mut solution.flow {

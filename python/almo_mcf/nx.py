@@ -163,7 +163,7 @@ def min_cost_flow(
         approx_factor: Approximation factor for the min-ratio cycle oracle.
         deterministic: When True, disable randomized cycle selection for reproducibility.
             Defaults to True for deterministic solver behavior.
-        return_stats: When True, return (flow_dict, ipm_stats).
+        return_stats: When True, return (flow_dict, stats) including solver_mode.
         use_scaling: When True, always apply scaling. When False, never apply scaling.
             Defaults to auto-detect based on U/C bounds.
     """
