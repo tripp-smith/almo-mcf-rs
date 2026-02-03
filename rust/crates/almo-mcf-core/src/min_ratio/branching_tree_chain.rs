@@ -184,10 +184,7 @@ impl BranchingTreeChain {
         }
         let start = level.tails[off_tree_edge] as usize;
         let end = level.heads[off_tree_edge] as usize;
-        let path_edges = level
-            .forest
-            .path_between(start, end)
-            .unwrap_or_default();
+        let path_edges = level.forest.path_between(start, end).unwrap_or_default();
         let mut cycle_edges = Vec::new();
         if path_edges.len() > 4 {
             if let Some(spanner_cycle) = self.extract_spanner_path(level_index, start, end) {
