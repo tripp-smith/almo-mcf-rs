@@ -250,10 +250,6 @@ fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
     m_u.powf(-10.0)
 }
 
-fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
-    solve_classic_with_mode(problem, SolverMode::Classic)
-}
-
 fn solve_classic_with_mode(
     problem: &McfProblem,
     solver_mode: SolverMode,
