@@ -308,6 +308,21 @@ impl DecrementalSpanner {
             .unwrap_or(0)
     }
 
+    pub fn sparse_edge_ids(&self) -> Option<&[usize]> {
+        self.levels
+            .first()
+            .map(|layer| layer.sparse_edges.as_slice())
+    }
+
+    pub fn edge_info(&self, edge_id: usize) -> Option<(usize, usize, f64)> {
+        let layer = self.levels.first()?;
+        let edge = layer.edges.get(edge_id)?;
+        if !edge.active {
+            return None;
+        }
+        Some((edge.u, edge.v, edge.length))
+    }
+
     fn rebuild(&mut self) {
         if let Some(level0) = self.levels.first() {
             let (tails, heads, lengths) = export_layer_edges(level0);

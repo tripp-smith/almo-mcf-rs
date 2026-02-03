@@ -1,3 +1,4 @@
+use crate::min_ratio::branching_tree_chain::BranchingTreeChain;
 use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
@@ -258,6 +259,9 @@ pub struct FullDynamicOracle {
     hierarchy: TreeChainHierarchy,
     spanner: EdgeSpanner,
     tree_chain: Option<TreeChain>,
+    branching_chain: Option<BranchingTreeChain>,
+    branch_logs: Vec<f64>,
+    branch_candidates: usize,
     dynamic_tree: Option<DynamicTree>,
     rebuild_game: RebuildGame,
     amortized: AmortizedTracker,
@@ -295,6 +299,9 @@ impl FullDynamicOracle {
             ),
             spanner: EdgeSpanner::new(deterministic, 0),
             tree_chain: None,
+            branching_chain: None,
+            branch_logs: Vec::new(),
+            branch_candidates: 64,
             dynamic_tree: None,
             rebuild_game: RebuildGame::new(max_instability as f64, 1.5),
             amortized: AmortizedTracker::new(),
@@ -311,6 +318,42 @@ impl FullDynamicOracle {
             tree_update_budget: max_instability.max(1),
             tree_length_factor: 1.25,
         }
+    }
+
+    fn ensure_branching_chain(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+    ) -> Result<(), TreeError> {
+        let needs_rebuild = self
+            .branching_chain
+            .as_ref()
+            .map(|chain| {
+                chain
+                    .levels
+                    .first()
+                    .map(|level| level.tails.len() != tails.len())
+            })
+            .flatten()
+            .unwrap_or(true);
+        if needs_rebuild {
+            let (chain, logs) = BranchingTreeChain::build(
+                node_count,
+                tails,
+                heads,
+                lengths,
+                None,
+                0.875,
+                self.deterministic,
+            )?;
+            self.branching_chain = Some(chain);
+            self.branch_logs = logs;
+        } else if let Some(chain) = self.branching_chain.as_mut() {
+            chain.update_level_zero_lengths(lengths);
+        }
+        Ok(())
     }
 
     fn rebuild_spanner(
@@ -538,6 +581,7 @@ impl FullDynamicOracle {
             .update_instability_threshold(tails.len(), self.instability_exponent);
         self.record_updates(gradients, lengths);
         self.ensure_tree_chain(iter, node_count, tails, heads, lengths)?;
+        self.ensure_branching_chain(node_count, tails, heads, lengths)?;
         if self.record_adversary_update(self.hierarchy.levels.len()) {
             self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             self.force_tree_chain_rebuild(iter, node_count, tails, heads, lengths)?;
@@ -597,6 +641,30 @@ impl FullDynamicOracle {
                     .unwrap_or(f64::INFINITY);
                 if chain_best.ratio < current_score {
                     best = Some(chain_best);
+                }
+            }
+        }
+
+        if let Some(chain) = self.branching_chain.as_mut() {
+            if let Some(candidate) =
+                chain.find_max_ratio_cycle(gradients, lengths, self.branch_candidates)
+            {
+                let current_score = best
+                    .as_ref()
+                    .map(|best| best.ratio)
+                    .unwrap_or(f64::INFINITY);
+                let ratio = -candidate.metrics.tilde_g / candidate.metrics.tilde_length;
+                if ratio < current_score {
+                    if let Some((numerator, denominator)) =
+                        Self::aggregate_cycle_metrics(&candidate.cycle.edges, gradients, lengths)
+                    {
+                        best = Some(CycleCandidate {
+                            ratio,
+                            numerator,
+                            denominator,
+                            cycle_edges: candidate.cycle.edges,
+                        });
+                    }
                 }
             }
         }

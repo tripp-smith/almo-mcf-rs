@@ -1,6 +1,7 @@
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+pub mod branching_tree_chain;
 pub mod dynamic;
 pub mod static_oracle;
 
