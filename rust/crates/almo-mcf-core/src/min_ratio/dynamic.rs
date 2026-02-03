@@ -330,13 +330,12 @@ impl FullDynamicOracle {
         let needs_rebuild = self
             .branching_chain
             .as_ref()
-            .map(|chain| {
+            .and_then(|chain| {
                 chain
                     .levels
                     .first()
                     .map(|level| level.tails.len() != tails.len())
             })
-            .flatten()
             .unwrap_or(true);
         if needs_rebuild {
             let (chain, logs) = BranchingTreeChain::build(

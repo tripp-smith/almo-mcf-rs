@@ -184,10 +184,10 @@ impl BranchingTreeChain {
         }
         let start = level.tails[off_tree_edge] as usize;
         let end = level.heads[off_tree_edge] as usize;
-        let path_edges = match level.forest.path_between(start, end) {
-            Some(path) => path,
-            None => Vec::new(),
-        };
+        let path_edges = level
+            .forest
+            .path_between(start, end)
+            .unwrap_or_default();
         let mut cycle_edges = Vec::new();
         if path_edges.len() > 4 {
             if let Some(spanner_cycle) = self.extract_spanner_path(level_index, start, end) {
@@ -296,7 +296,17 @@ impl BranchingTreeChain {
                 .and_then(|level| level.spanner.sparse_edge_ids())
                 .map(|edges| edges.to_vec())
                 .unwrap_or_default();
-            for edge_id in sparse_edges {
+            let fallback_edges = self
+                .levels
+                .get(level_index)
+                .map(|level| (0..level.tails.len()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let edge_candidates = if sparse_edges.is_empty() {
+                fallback_edges
+            } else {
+                sparse_edges
+            };
+            for edge_id in edge_candidates {
                 if count >= max_edges_per_level {
                     break;
                 }
@@ -338,7 +348,38 @@ impl BranchingTreeChain {
                 });
             }
         }
-        best
+        if best.is_some() {
+            return best;
+        }
+        let level_index = 0;
+        let level = self.levels.get(level_index)?;
+        let (cycle_edges, _ratio) = exact_best_cycle(
+            level.tails.len().max(1),
+            &level.tails,
+            &level.heads,
+            gradients,
+            lengths,
+        )?;
+        let cycle = Cycle { edges: cycle_edges };
+        let metrics = self
+            .compute_cycle_metrics(level_index, &cycle, gradients, lengths)
+            .unwrap_or_else(|| {
+                let mut numerator = 0.0;
+                let mut denominator = 0.0;
+                for &(edge_id, dir) in &cycle.edges {
+                    numerator += (dir as f64) * gradients[edge_id];
+                    denominator += lengths[edge_id].abs();
+                }
+                CycleMetrics {
+                    tilde_g: numerator,
+                    tilde_length: denominator.max(1.0),
+                }
+            });
+        Some(CycleCandidate {
+            cycle,
+            ratio: -metrics.tilde_g / metrics.tilde_length,
+            metrics,
+        })
     }
 
     pub fn decompose_to_circulation(
@@ -394,9 +435,9 @@ fn compute_overstretches(
     lengths: &[f64],
 ) -> Vec<f64> {
     let mut overstretches = vec![1.0; lengths.len()];
-    for edge_id in 0..lengths.len() {
+    for (edge_id, overstretch) in overstretches.iter_mut().enumerate() {
         if let Some(stretch) = tree.edge_stretch(edge_id, tails, heads, lengths) {
-            overstretches[edge_id] = stretch.max(1.0);
+            *overstretch = stretch.max(1.0);
         }
     }
     overstretches
@@ -540,9 +581,7 @@ fn shortest_path_edges(
             break;
         }
     }
-    if prev[end].is_none() {
-        return None;
-    }
+    prev[end]?;
     let mut edges = Vec::new();
     let mut current = end;
     while current != start {
