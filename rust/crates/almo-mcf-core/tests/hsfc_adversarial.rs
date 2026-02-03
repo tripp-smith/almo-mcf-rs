@@ -10,7 +10,7 @@ fn hsfc_sequence_detects_instability() {
     let prev = sequence.latest().clone();
     let witness = HSFCWitness::new(vec![0.0, 3.0]);
     let dirty = HashSet::new();
-    assert_eq!(witness.check_stability(&prev, &dirty), false);
+    assert!(!witness.check_stability(&prev, &dirty));
     let status = sequence.append(witness, &dirty);
     assert_eq!(status, HSFCStability::Unstable);
 }
