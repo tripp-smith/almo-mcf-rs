@@ -22,13 +22,13 @@ Reduces inputs to poly bounds for IPM applicability.
 ### 3. Implement Low-Stretch Decomposition and Forests (From Papers 1 & 2, Sections 6)
 Handles graph decomposition; start with randomized (Paper 1), then derandomize (Paper 2).
 
-- [ ] Implement basic low-stretch spanning tree (LSST) construction with stretch \(O(\gamma_{LSST} \log^4 n)\) (randomized sampling).
-- [ ] Add forest operations: Promote roots, delete edges, compute stretch overestimates.
-- [ ] Implement multiplicative-weight sampling for fixed circulations (Lemma 6.6, sample \(B = O(\log n)\) trees).
-- [ ] For derandomization: Precompute multiple forests (\(s\) forests), implement shifting logic to cycle through them.
-- [ ] Add lazy update propagation to forests during shifts.
-- [ ] Test forest stretch and updates on random graphs, measuring amortized times.
-- [ ] Integrate into hierarchical levels (e.g., recurse on contracted cores).
+- [x] Implement basic low-stretch spanning tree (LSST) construction with stretch \(O(\gamma_{LSST} \log^4 n)\) (randomized sampling).
+- [x] Add forest operations: Promote roots, delete edges, compute stretch overestimates.
+- [x] Implement multiplicative-weight sampling for fixed circulations (Lemma 6.6, sample \(B = O(\log n)\) trees).
+- [x] For derandomization: Precompute multiple forests (\(s\) forests), implement shifting logic to cycle through them.
+- [x] Add lazy update propagation to forests during shifts.
+- [x] Test forest stretch and updates on random graphs, measuring amortized times.
+- [x] Integrate into hierarchical levels (e.g., recurse on contracted cores).
 
 ### 4. Implement Dynamic Decremental Spanner (From Paper 1, Theorem 5.1)
 Sparsifies the core graph with embeddings.

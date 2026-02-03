@@ -1,4 +1,13 @@
 pub mod dynamic;
+pub mod forest;
+pub mod hierarchy;
+pub mod mwu;
+pub mod shift;
+
+use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
+
+use crate::graph::Graph;
 
 #[derive(Debug, Clone)]
 pub struct LowStretchTree {
@@ -23,13 +32,32 @@ pub enum TreeBuildMode {
     Deterministic,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LsstConfig {
+    pub seed: u64,
+    pub stretch_target: f64,
+    pub sampling_rounds: usize,
+    pub debug: bool,
+}
+
+impl Default for LsstConfig {
+    fn default() -> Self {
+        Self {
+            seed: 0,
+            stretch_target: 8.0,
+            sampling_rounds: 4,
+            debug: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-struct XorShift64 {
+pub(crate) struct XorShift64 {
     state: u64,
 }
 
 impl XorShift64 {
-    fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         let seed = if seed == 0 {
             0x9e37_79b9_7f4a_7c15
         } else {
@@ -38,7 +66,7 @@ impl XorShift64 {
         Self { state: seed }
     }
 
-    fn next_u64(&mut self) -> u64 {
+    pub(crate) fn next_u64(&mut self) -> u64 {
         let mut x = self.state;
         x ^= x << 13;
         x ^= x >> 7;
@@ -47,12 +75,12 @@ impl XorShift64 {
         x
     }
 
-    fn next_f64(&mut self) -> f64 {
+    pub(crate) fn next_f64(&mut self) -> f64 {
         let bits = self.next_u64() >> 11;
         (bits as f64) * (1.0 / ((1u64 << 53) as f64))
     }
 
-    fn shuffle<T>(&mut self, values: &mut [T]) {
+    pub(crate) fn shuffle<T>(&mut self, values: &mut [T]) {
         for idx in (1..values.len()).rev() {
             let j = (self.next_u64() as usize) % (idx + 1);
             values.swap(idx, j);
@@ -61,6 +89,110 @@ impl XorShift64 {
 }
 
 impl LowStretchTree {
+    pub fn build_from_tree_edges(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        tree_edges: Vec<bool>,
+    ) -> Result<Self, TreeError> {
+        Self::build_from_tree_edges_with_order(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            tree_edges,
+            &(0..node_count).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn build_from_tree_edges_with_order(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        tree_edges: Vec<bool>,
+        order: &[usize],
+    ) -> Result<Self, TreeError> {
+        if node_count == 0 {
+            return Err(TreeError::EmptyGraph);
+        }
+        if tails.len() != heads.len() || tails.len() != lengths.len() {
+            return Err(TreeError::MissingEdgeLengths);
+        }
+        if tree_edges.len() != tails.len() {
+            return Err(TreeError::MissingEdgeLengths);
+        }
+
+        let mut adjacency: Vec<Vec<(usize, usize)>> = vec![Vec::new(); node_count];
+        for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+            if !tree_edges[edge_id] {
+                continue;
+            }
+            let u = tail as usize;
+            let v = head as usize;
+            adjacency[u].push((v, edge_id));
+            adjacency[v].push((u, edge_id));
+        }
+
+        let mut parent = vec![usize::MAX; node_count];
+        let mut parent_edge = vec![usize::MAX; node_count];
+        let mut depth = vec![0; node_count];
+        let mut prefix_length = vec![0.0; node_count];
+        let mut root = vec![usize::MAX; node_count];
+
+        for &start in order {
+            if start >= node_count {
+                continue;
+            }
+            if parent[start] != usize::MAX {
+                continue;
+            }
+            parent[start] = start;
+            parent_edge[start] = usize::MAX;
+            root[start] = start;
+            depth[start] = 0;
+            prefix_length[start] = 0.0;
+            let mut stack = vec![start];
+            while let Some(node) = stack.pop() {
+                for &(neighbor, edge_id) in &adjacency[node] {
+                    if parent[neighbor] != usize::MAX {
+                        continue;
+                    }
+                    parent[neighbor] = node;
+                    parent_edge[neighbor] = edge_id;
+                    root[neighbor] = start;
+                    depth[neighbor] = depth[node] + 1;
+                    prefix_length[neighbor] = prefix_length[node] + lengths[edge_id];
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        let mut max_pow = 1;
+        while (1usize << max_pow) <= node_count {
+            max_pow += 1;
+        }
+        let mut up = vec![vec![0; node_count]; max_pow];
+        up[0][..node_count].copy_from_slice(&parent[..node_count]);
+        for k in 1..max_pow {
+            for node in 0..node_count {
+                let mid = up[k - 1][node];
+                up[k][node] = up[k - 1][mid];
+            }
+        }
+
+        Ok(Self {
+            parent,
+            parent_edge,
+            depth,
+            prefix_length,
+            root,
+            tree_edges,
+            up,
+        })
+    }
+
     pub fn build(
         node_count: usize,
         tails: &[u32],
@@ -480,7 +612,7 @@ fn edge_direction(from: usize, to: usize, edge_id: usize, tails: &[u32], heads: 
 }
 
 #[derive(Debug, Clone)]
-struct UnionFind {
+pub(crate) struct UnionFind {
     parent: Vec<usize>,
     rank: Vec<usize>,
 }
@@ -516,6 +648,96 @@ impl UnionFind {
         }
         true
     }
+}
+
+pub fn build_random_lsst(
+    graph: &Graph,
+    lengths: &[f64],
+    config: LsstConfig,
+) -> Result<(LowStretchTree, Vec<f64>), TreeError> {
+    let node_count = graph.node_count();
+    let edge_count = graph.edge_count();
+    if node_count == 0 {
+        return Err(TreeError::EmptyGraph);
+    }
+    if lengths.len() != edge_count {
+        return Err(TreeError::MissingEdgeLengths);
+    }
+
+    let mut tails = Vec::with_capacity(edge_count);
+    let mut heads = Vec::with_capacity(edge_count);
+    for (_, edge) in graph.edges() {
+        tails.push(edge.tail.0 as u32);
+        heads.push(edge.head.0 as u32);
+    }
+
+    let rounds = config.sampling_rounds.max(1);
+    let stretch_target = config.stretch_target.max(1.0);
+    let mut best_tree = None;
+    let mut best_stretch = None;
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(config.seed);
+    let mut edge_ids: Vec<usize> = (0..edge_count).collect();
+
+    for _ in 0..rounds {
+        edge_ids.shuffle(&mut rng);
+        edge_ids.sort_by(|&a, &b| {
+            let jitter_a: f64 = rng.gen::<f64>() * (1.0 / stretch_target);
+            let jitter_b: f64 = rng.gen::<f64>() * (1.0 / stretch_target);
+            let score_a = lengths[a].abs() * (1.0 + jitter_a);
+            let score_b = lengths[b].abs() * (1.0 + jitter_b);
+            score_a
+                .partial_cmp(&score_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut uf = UnionFind::new(node_count);
+        let mut tree_edges = vec![false; edge_count];
+        for &edge_id in &edge_ids {
+            let u = tails[edge_id] as usize;
+            let v = heads[edge_id] as usize;
+            if uf.union(u, v) {
+                tree_edges[edge_id] = true;
+            }
+        }
+        let tree =
+            LowStretchTree::build_from_tree_edges(node_count, &tails, &heads, lengths, tree_edges)?;
+        let mut stretch = Vec::with_capacity(edge_count);
+        let mut stretch_sum = 0.0;
+        let mut stretch_count = 0.0;
+        for edge_id in 0..edge_count {
+            let value = tree
+                .edge_stretch(edge_id, &tails, &heads, lengths)
+                .unwrap_or(f64::INFINITY);
+            if value.is_finite() {
+                stretch_sum += value;
+                stretch_count += 1.0;
+            }
+            stretch.push(value);
+        }
+        let avg_stretch = if stretch_count > 0.0 {
+            stretch_sum / stretch_count
+        } else {
+            f64::INFINITY
+        };
+        if config.debug {
+            let _ = avg_stretch;
+        }
+        if best_stretch.map_or(true, |best| avg_stretch < best) {
+            best_tree = Some(tree);
+            best_stretch = Some(avg_stretch);
+        }
+    }
+
+    let tree = best_tree.expect("tree built");
+    let mut stretch = Vec::with_capacity(edge_count);
+    for edge_id in 0..edge_count {
+        stretch.push(
+            tree.edge_stretch(edge_id, &tails, &heads, lengths)
+                .unwrap_or(f64::INFINITY),
+        );
+    }
+    Ok((tree, stretch))
 }
 
 #[cfg(test)]
