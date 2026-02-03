@@ -1,11 +1,11 @@
 use crate::ipm::{self, IpmRunContext, IpmRunKind};
 use crate::{McfError, McfOptions, McfProblem};
 
-use super::{record_capacity_phase, update_initial_flow, ScalingStats};
 use super::utils::{
     feasible_initial_flow, max_abs, max_power_of_two_divisor, next_power_of_two, scale_flow,
     scale_problem,
 };
+use super::{record_capacity_phase, update_initial_flow, ScalingStats};
 
 #[derive(Debug, Clone)]
 pub struct CapacityScalingResult {

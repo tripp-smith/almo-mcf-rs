@@ -56,19 +56,19 @@ pub fn solve_mcf_with_scaling(
 
     let mut round_opts = opts.clone();
     round_opts.initial_flow = capacity.initial_flow.clone();
-    let ipm_result = if opts.force_cost_scaling || cost::needs_cost_scaling(&capacity.scaled_problem)
-    {
-        cost_scaling(&capacity.scaled_problem, &round_opts, &mut stats)?
-    } else {
-        ipm::run_ipm_with_context(
-            &capacity.scaled_problem,
-            &round_opts,
-            IpmRunContext {
-                kind: IpmRunKind::CostScaling,
-                round: 0,
-            },
-        )?
-    };
+    let ipm_result =
+        if opts.force_cost_scaling || cost::needs_cost_scaling(&capacity.scaled_problem) {
+            cost_scaling(&capacity.scaled_problem, &round_opts, &mut stats)?
+        } else {
+            ipm::run_ipm_with_context(
+                &capacity.scaled_problem,
+                &round_opts,
+                IpmRunContext {
+                    kind: IpmRunKind::CostScaling,
+                    round: 0,
+                },
+            )?
+        };
 
     let ipm_stats = Some(IpmSummary::from_ipm(
         &ipm_result.stats,

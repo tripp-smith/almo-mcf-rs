@@ -1,11 +1,11 @@
 use crate::ipm::{self, IpmResult, IpmRunContext, IpmRunKind};
 use crate::{McfError, McfOptions, McfProblem};
 use num_bigint::BigInt;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Zero};
 use std::time::Instant;
 
-use super::{record_cost_round, update_initial_flow, ScalingStats};
 use super::utils::{bigint_bits, feasible_initial_flow, max_abs};
+use super::{record_cost_round, update_initial_flow, ScalingStats};
 
 #[derive(Debug, Clone)]
 pub struct CostScalingInfo {
@@ -51,7 +51,13 @@ pub fn cost_scaling(
             info.max_scaled_cost
         );
 
-        record_cost_round(stats, round, midpoint.clone(), solved_cost.clone(), &ipm_result);
+        record_cost_round(
+            stats,
+            round,
+            midpoint.clone(),
+            solved_cost.clone(),
+            &ipm_result,
+        );
 
         last_flow = update_initial_flow(&scaled_problem, last_flow, &ipm_result);
 
