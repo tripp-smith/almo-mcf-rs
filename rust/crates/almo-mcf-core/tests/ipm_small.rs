@@ -18,7 +18,7 @@ fn build_feasible_problem(rng: &mut StdRng, n: usize, m: usize) -> McfProblem {
             head = (head + 1) % n as u32;
         }
         let up = rng.gen_range(1..=100) as i64;
-        let f = rng.gen_range(0..=up) as i64;
+        let f = rng.gen_range(0..=up);
         tails.push(tail);
         heads.push(head);
         lower.push(0);
