@@ -10,10 +10,12 @@ pub struct LevelData {
     pub core: ContractedGraph,
     pub spanner: DecrementalSpanner,
     pub vertex_map: Vec<usize>,
+    pub core_edge_ids: Vec<usize>,
     pub tails: Vec<u32>,
     pub heads: Vec<u32>,
     pub lengths: Vec<f64>,
     pub overstretches: Vec<f64>,
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -90,10 +92,7 @@ impl BranchingTreeChain {
         if node_count <= 1 {
             return 1;
         }
-        let log_n = (node_count as f64).ln();
-        let log_inv = (1.0_f64 / 0.875_f64).ln();
-        let levels = (log_n / log_inv).ceil() as usize;
-        levels.max(1)
+        ((node_count as f64).log(8.0).floor() as usize + 1).max(1)
     }
 
     pub fn build(
@@ -138,7 +137,7 @@ impl BranchingTreeChain {
                 compute_overstretches(&tree, &current_tails, &current_heads, &current_lengths);
             let forest =
                 LSForest::from_tree(&tree, &current_tails, &current_heads, &current_lengths);
-            let (core, vertex_map) = contract_graph(
+            let (core, vertex_map, core_edge_ids) = contract_graph(
                 current_nodes,
                 &current_tails,
                 &current_heads,
@@ -154,10 +153,12 @@ impl BranchingTreeChain {
                 core,
                 spanner,
                 vertex_map,
+                core_edge_ids,
                 tails: current_tails.clone(),
                 heads: current_heads.clone(),
                 lengths: current_lengths.clone(),
                 overstretches,
+                dirty: false,
             });
 
             let next_node_count = levels
@@ -233,6 +234,7 @@ impl BranchingTreeChain {
         if let Some(level) = self.levels.first_mut() {
             if lengths.len() == level.lengths.len() {
                 level.lengths.clone_from_slice(lengths);
+                level.dirty = true;
             }
         }
     }
@@ -243,6 +245,7 @@ impl BranchingTreeChain {
                 if let Some(length) = lengths.get(edge_id) {
                     if edge_id < level.lengths.len() {
                         level.lengths[edge_id] = *length;
+                        level.dirty = true;
                     }
                 }
             }
@@ -380,6 +383,56 @@ impl BranchingTreeChain {
         }
     }
 
+    pub fn form_cycle(&mut self, off_tree_edge: usize, level_index: usize) -> Option<Cycle> {
+        let level = self.levels.get_mut(level_index)?;
+        if off_tree_edge >= level.tails.len() {
+            return None;
+        }
+        let start = level.tails[off_tree_edge] as usize;
+        let end = level.heads[off_tree_edge] as usize;
+        let tree_path = path_edges_between(level, start, end)?;
+        let long_path = tree_path.len() > 8;
+        let mut cycle_edges = Vec::new();
+
+        if long_path && level_index > 0 {
+            let contracted_start = level.vertex_map.get(start).copied()?;
+            let contracted_end = level.vertex_map.get(end).copied()?;
+            if let Some(path) = level.spanner.embed_path(contracted_start, contracted_end) {
+                let mapped = path
+                    .steps
+                    .iter()
+                    .filter_map(|step| {
+                        let core_edge = level.core_edge_ids.get(step.edge).copied()?;
+                        Some((core_edge, step.dir))
+                    })
+                    .collect::<Vec<_>>();
+                if let (Some(first), Some(last)) = (mapped.first(), mapped.last()) {
+                    let (path_start, _) = edge_endpoint_with_dir(level, first.0, first.1)?;
+                    let (_, path_end) = edge_endpoint_with_dir(level, last.0, last.1)?;
+                    cycle_edges.extend(path_edges_between(level, start, path_start)?);
+                    cycle_edges.extend(mapped);
+                    cycle_edges.extend(path_edges_between(level, path_end, end)?);
+                } else {
+                    cycle_edges.extend(tree_path);
+                }
+            } else {
+                cycle_edges.extend(tree_path);
+            }
+        } else {
+            cycle_edges.extend(tree_path);
+        }
+
+        let off_dir = if level.tails[off_tree_edge] as usize == end
+            && level.heads[off_tree_edge] as usize == start
+        {
+            1
+        } else {
+            -1
+        };
+        cycle_edges.push((off_tree_edge, off_dir));
+        Some(Cycle { edges: cycle_edges })
+    }
+
     fn extract_spanner_path(
         &mut self,
         level_index: usize,
@@ -407,6 +460,22 @@ impl BranchingTreeChain {
     }
 
     pub fn compute_cycle_metrics(
+        &self,
+        cycle: &Cycle,
+        gradients: &[f64],
+        lengths: &[f64],
+    ) -> (f64, f64) {
+        cycle
+            .edges
+            .iter()
+            .fold((0.0, 0.0), |(gp, len), &(edge_id, dir)| {
+                let gradient = gradients.get(edge_id).copied().unwrap_or(0.0);
+                let length = lengths.get(edge_id).copied().unwrap_or(0.0).abs();
+                (gp + gradient * dir as f64, len + length)
+            })
+    }
+
+    fn compute_cycle_metrics_at_level(
         &self,
         level_index: usize,
         cycle: &Cycle,
@@ -496,7 +565,7 @@ impl BranchingTreeChain {
             }
             for cycle in candidates {
                 let metrics =
-                    self.compute_cycle_metrics(level_index, &cycle, gradients, lengths)?;
+                    self.compute_cycle_metrics_at_level(level_index, &cycle, gradients, lengths)?;
                 if metrics.tilde_g >= 0.0 {
                     continue;
                 }
@@ -532,7 +601,7 @@ impl BranchingTreeChain {
         )?;
         let cycle = Cycle { edges: cycle_edges };
         let metrics = self
-            .compute_cycle_metrics(level_index, &cycle, gradients, lengths)
+            .compute_cycle_metrics_at_level(level_index, &cycle, gradients, lengths)
             .unwrap_or_else(|| {
                 let mut numerator = 0.0;
                 let mut denominator = 0.0;
@@ -596,6 +665,93 @@ impl BranchingTreeChain {
             flow_value: min_residual.max(0.0),
         })
     }
+
+    pub fn extract_min_ratio_cycle(
+        &mut self,
+        gradients: &[f64],
+        lengths: &[f64],
+        kappa: f64,
+    ) -> Option<Cycle> {
+        let mut best_ratio = 0.0;
+        let mut best_cycle = None;
+        let sample_limit = (lengths.len() as f64).sqrt().ceil() as usize;
+        let mut samples: Vec<(f64, Cycle)> = Vec::new();
+
+        for level_index in (0..self.levels.len()).rev() {
+            let edge_count = self
+                .levels
+                .get(level_index)
+                .map(|level| level.tails.len())
+                .unwrap_or(0);
+            for edge_id in 0..edge_count {
+                let Some(cycle) = self.form_cycle(edge_id, level_index) else {
+                    continue;
+                };
+                let (gp, len) = self.compute_cycle_metrics(&cycle, gradients, lengths);
+                if len <= 0.0 || gp >= 0.0 {
+                    continue;
+                }
+                let ratio = -gp / len;
+                if samples.len() < sample_limit {
+                    samples.push((ratio, cycle));
+                } else if let Some((min_idx, min_val)) = samples
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| {
+                        a.1 .0
+                            .partial_cmp(&b.1 .0)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .map(|(idx, val)| (idx, val.0))
+                {
+                    if ratio > min_val {
+                        samples[min_idx] = (ratio, cycle);
+                    }
+                }
+            }
+        }
+
+        for (ratio, cycle) in samples {
+            if ratio > best_ratio * (1.0 + kappa) {
+                best_ratio = ratio;
+                best_cycle = Some(cycle);
+            }
+        }
+        best_cycle
+    }
+
+    pub fn decompose_circulation(&self, cycle: &Cycle) -> Option<Decomposition> {
+        let level = self.levels.first()?;
+        if cycle.edges.is_empty() {
+            return None;
+        }
+        let mut tree_paths = Vec::new();
+        let mut off_tree_edges = Vec::new();
+        let mut current_path: Vec<(usize, i8)> = Vec::new();
+
+        for &(edge_id, dir) in &cycle.edges {
+            if edge_id >= level.tails.len() {
+                continue;
+            }
+            if is_tree_edge(level, edge_id) {
+                current_path.push((edge_id, dir));
+            } else {
+                if !current_path.is_empty() {
+                    tree_paths.push(current_path);
+                    current_path = Vec::new();
+                }
+                off_tree_edges.push((edge_id, dir));
+            }
+        }
+        if !current_path.is_empty() {
+            tree_paths.push(current_path);
+        }
+
+        Some(Decomposition {
+            tree_paths,
+            off_tree_edges,
+        })
+    }
 }
 
 fn compute_overstretches(
@@ -619,7 +775,7 @@ fn contract_graph(
     heads: &[u32],
     lengths: &[f64],
     tree: &LowStretchTree,
-) -> (ContractedGraph, Vec<usize>) {
+) -> (ContractedGraph, Vec<usize>, Vec<usize>) {
     let mut component_map = vec![usize::MAX; node_count];
     let mut supernodes: Vec<Vec<usize>> = Vec::new();
     let mut next_id = 0;
@@ -642,6 +798,7 @@ fn contract_graph(
     let mut new_tails = Vec::new();
     let mut new_heads = Vec::new();
     let mut new_lengths = Vec::new();
+    let mut core_edge_ids = Vec::new();
     for edge_id in 0..tails.len() {
         let u = tails[edge_id] as usize;
         let v = heads[edge_id] as usize;
@@ -653,6 +810,7 @@ fn contract_graph(
         new_tails.push(cu as u32);
         new_heads.push(cv as u32);
         new_lengths.push(lengths[edge_id]);
+        core_edge_ids.push(edge_id);
     }
     (
         ContractedGraph {
@@ -663,7 +821,61 @@ fn contract_graph(
             supernodes,
         },
         component_map,
+        core_edge_ids,
     )
+}
+
+fn path_edges_between(level: &LevelData, start: usize, end: usize) -> Option<Vec<(usize, i8)>> {
+    let path = level.forest.path_between(start, end)?;
+    if path.len() < 2 {
+        return Some(Vec::new());
+    }
+    let mut edges = Vec::new();
+    for window in path.windows(2) {
+        let u = window[0];
+        let v = window[1];
+        let edge_id = find_edge_id(&level.tails, &level.heads, u, v)?;
+        let dir = if level.tails[edge_id] as usize == u && level.heads[edge_id] as usize == v {
+            1
+        } else {
+            -1
+        };
+        edges.push((edge_id, dir));
+    }
+    Some(edges)
+}
+
+fn edge_endpoint_with_dir(level: &LevelData, edge_id: usize, dir: i8) -> Option<(usize, usize)> {
+    let tail = level.tails.get(edge_id).copied()? as usize;
+    let head = level.heads.get(edge_id).copied()? as usize;
+    if dir >= 0 {
+        Some((tail, head))
+    } else {
+        Some((head, tail))
+    }
+}
+
+fn is_tree_edge(level: &LevelData, edge_id: usize) -> bool {
+    let u = level.tails[edge_id] as usize;
+    let v = level.heads[edge_id] as usize;
+    level
+        .forest
+        .adjacency
+        .get(u)
+        .map(|adj| adj.iter().any(|&(node, _)| node == v))
+        .unwrap_or(false)
+        || level
+            .forest
+            .adjacency
+            .get(v)
+            .map(|adj| adj.iter().any(|&(node, _)| node == u))
+            .unwrap_or(false)
+}
+
+#[derive(Debug, Clone)]
+pub struct Decomposition {
+    pub tree_paths: Vec<Vec<(usize, i8)>>,
+    pub off_tree_edges: Vec<(usize, i8)>,
 }
 
 fn find_edge_id(tails: &[u32], heads: &[u32], u: usize, v: usize) -> Option<usize> {

@@ -48,10 +48,8 @@ fn branching_tree_chain_builds_and_extracts_cycles() {
     assert_eq!(chain.levels[0].tails.len(), tails.len());
     assert_eq!(logs.len(), chain.levels.len());
     let cycle = chain.extract_fundamental_cycle(0, 0).expect("cycle");
-    let metrics = chain
-        .compute_cycle_metrics(0, &cycle, &gradients, &lengths)
-        .expect("metrics");
-    assert!(metrics.tilde_length > 0.0);
+    let (_tilde_g, tilde_length) = chain.compute_cycle_metrics(&cycle, &gradients, &lengths);
+    assert!(tilde_length > 0.0);
 }
 
 #[test]
