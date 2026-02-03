@@ -627,7 +627,7 @@ fn sparsify_layer(
     let mut sparse_edges = Vec::new();
     let mut sparse_adjacency = vec![Vec::new(); node_count];
     let mut seen = HashSet::new();
-    for (node, neighbors) in adjacency.iter().enumerate().take(node_count) {
+    for (_, neighbors) in adjacency.iter().enumerate().take(node_count) {
         let mut neighbors: Vec<usize> = neighbors.clone();
         if !deterministic {
             neighbors.reverse();
