@@ -1,7 +1,7 @@
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
-use crate::{McfError, McfOptions, McfProblem, Strategy};
+use crate::{McfError, McfOptions, McfProblem, OracleMode, Strategy};
 use std::time::Instant;
 
 mod potential;
@@ -123,21 +123,43 @@ pub(crate) fn run_ipm_with_lower_bound(
 
     let mut fallback_oracle = None;
     let mut dynamic_oracle = None;
-    match opts.strategy {
-        Strategy::PeriodicRebuild { rebuild_every } => {
+    let fallback_rebuild_every = match opts.strategy {
+        Strategy::PeriodicRebuild { rebuild_every } => rebuild_every,
+        Strategy::FullDynamic => 25,
+    };
+    let approx_kappa = opts
+        .approx_factor
+        .max((problem.edge_count().max(1) as f64).powf(-0.01));
+    match opts.oracle_mode {
+        OracleMode::Fallback => {
             fallback_oracle = Some(MinRatioOracle::new_with_mode(
                 opts.seed,
-                rebuild_every,
+                fallback_rebuild_every,
                 opts.deterministic,
             ));
         }
-        Strategy::FullDynamic => {
+        OracleMode::Dynamic => {
             dynamic_oracle = Some(FullDynamicOracle::new(
                 opts.seed,
                 3,
                 1,
                 10,
-                opts.approx_factor,
+                approx_kappa,
+                opts.deterministic,
+            ));
+        }
+        OracleMode::Hybrid => {
+            fallback_oracle = Some(MinRatioOracle::new_with_mode(
+                opts.seed,
+                fallback_rebuild_every,
+                opts.deterministic,
+            ));
+            dynamic_oracle = Some(FullDynamicOracle::new(
+                opts.seed,
+                3,
+                1,
+                10,
+                approx_kappa,
                 opts.deterministic,
             ));
         }
@@ -151,6 +173,10 @@ pub(crate) fn run_ipm_with_lower_bound(
         last_gap: f64::INFINITY,
     };
     let mut termination = IpmTermination::IterationLimit;
+    let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
+    let mut stall_iters = 0usize;
+    let mut last_kappa: Option<f64> = None;
+    let dynamic_loss_threshold = (problem.edge_count().max(1) as f64).powf(0.1).ceil() as usize;
 
     for iter in 0..opts.max_iters {
         if let Some(limit) = opts.time_limit_ms {
@@ -165,6 +191,25 @@ pub(crate) fn run_ipm_with_lower_bound(
         let current_potential = potential.value_with_residuals(&cost, &flow, &residuals);
         stats.potentials.push(current_potential);
         stats.last_gap = potential.duality_gap(&cost, &flow, &residuals);
+        if matches!(opts.oracle_mode, OracleMode::Hybrid) && !using_fallback {
+            if let (Some(prev), Some(kappa)) =
+                (stats.potentials.iter().rev().nth(1).copied(), last_kappa)
+            {
+                let reduction = prev - current_potential;
+                if reduction < kappa * kappa {
+                    stall_iters = stall_iters.saturating_add(1);
+                } else {
+                    stall_iters = 0;
+                }
+                if stall_iters >= 10 {
+                    using_fallback = true;
+                    eprintln!(
+                        "warning: dynamic oracle stalled (reduction {:.3e}); falling back to SSP",
+                        reduction
+                    );
+                }
+            }
+        }
         if current_potential <= termination_target {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
@@ -176,7 +221,32 @@ pub(crate) fn run_ipm_with_lower_bound(
             break;
         }
 
-        let best = if let Some(oracle) = fallback_oracle.as_mut() {
+        let best = if !using_fallback {
+            if let Some(oracle) = dynamic_oracle.as_mut() {
+                let best = oracle
+                    .best_cycle(
+                        iter,
+                        problem.node_count,
+                        &problem.tails,
+                        &problem.heads,
+                        &gradient,
+                        &lengths,
+                    )
+                    .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?;
+                if matches!(opts.oracle_mode, OracleMode::Hybrid)
+                    && oracle.loss_count() > dynamic_loss_threshold
+                {
+                    using_fallback = true;
+                    eprintln!(
+                        "warning: dynamic oracle exceeded loss threshold ({}); falling back to SSP",
+                        oracle.loss_count()
+                    );
+                }
+                best
+            } else {
+                None
+            }
+        } else if let Some(oracle) = fallback_oracle.as_mut() {
             oracle
                 .best_cycle(OracleQuery {
                     iter,
@@ -186,17 +256,6 @@ pub(crate) fn run_ipm_with_lower_bound(
                     gradients: &gradient,
                     lengths: &lengths,
                 })
-                .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
-        } else if let Some(oracle) = dynamic_oracle.as_mut() {
-            oracle
-                .best_cycle(
-                    iter,
-                    problem.node_count,
-                    &problem.tails,
-                    &problem.heads,
-                    &gradient,
-                    &lengths,
-                )
                 .map_err(|err| McfError::InvalidInput(format!("{err:?}")))?
         } else {
             None
@@ -231,6 +290,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         }
 
         let kappa = (-best.ratio).max(0.0);
+        last_kappa = Some(kappa);
         if kappa < potential.kappa_floor() {
             termination = IpmTermination::Converged;
             stats.iterations = iter;

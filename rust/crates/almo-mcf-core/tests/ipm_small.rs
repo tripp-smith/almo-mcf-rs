@@ -1,5 +1,5 @@
 use almo_mcf_core::ipm::{run_ipm, IpmTermination};
-use almo_mcf_core::{McfOptions, McfProblem};
+use almo_mcf_core::{McfOptions, McfProblem, OracleMode, Strategy};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -117,4 +117,24 @@ fn ipm_handles_zero_capacity_edges() {
     };
     let err = run_ipm(&problem, &opts).unwrap_err();
     assert!(matches!(err, almo_mcf_core::McfError::Infeasible));
+}
+
+#[test]
+fn ipm_runs_with_fallback_oracle_mode() {
+    let problem =
+        McfProblem::new(vec![0], vec![1], vec![0], vec![10], vec![1], vec![-5, 5]).unwrap();
+    let opts = McfOptions {
+        oracle_mode: OracleMode::Fallback,
+        strategy: Strategy::PeriodicRebuild { rebuild_every: 1 },
+        use_ipm: Some(true),
+        max_iters: 50,
+        ..McfOptions::default()
+    };
+    let result = run_ipm(&problem, &opts).unwrap();
+    assert!(matches!(
+        result.termination,
+        IpmTermination::Converged
+            | IpmTermination::IterationLimit
+            | IpmTermination::NoImprovingCycle
+    ));
 }
