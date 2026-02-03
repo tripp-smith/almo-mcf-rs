@@ -286,6 +286,7 @@ pub struct FullDynamicOracle {
     tree_rebuild_every: usize,
     tree_update_budget: usize,
     tree_length_factor: f64,
+    approx_kappa: f64,
 }
 
 impl FullDynamicOracle {
@@ -327,6 +328,7 @@ impl FullDynamicOracle {
             tree_rebuild_every: rebuild_every.max(1),
             tree_update_budget: max_instability.max(1),
             tree_length_factor: 1.25,
+            approx_kappa: approx_factor.abs(),
         }
     }
 
@@ -354,7 +356,7 @@ impl FullDynamicOracle {
                 heads,
                 lengths,
                 None,
-                0.875,
+                0.125,
                 self.deterministic,
             )?;
             self.branching_chain = Some(chain);
@@ -743,23 +745,23 @@ impl FullDynamicOracle {
         }
 
         if let Some(chain) = self.branching_chain.as_mut() {
-            if let Some(candidate) =
-                chain.find_max_ratio_cycle(gradients, lengths, self.branch_candidates)
+            if let Some(cycle) =
+                chain.extract_min_ratio_cycle(gradients, lengths, self.approx_kappa.max(0.0))
             {
-                let current_score = best
-                    .as_ref()
-                    .map(|best| best.ratio)
-                    .unwrap_or(f64::INFINITY);
-                let ratio = -candidate.metrics.tilde_g / candidate.metrics.tilde_length;
-                if ratio < current_score {
-                    if let Some((numerator, denominator)) =
-                        Self::aggregate_cycle_metrics(&candidate.cycle.edges, gradients, lengths)
-                    {
+                if let Some((numerator, denominator)) =
+                    Self::aggregate_cycle_metrics(&cycle.edges, gradients, lengths)
+                {
+                    let ratio = numerator / denominator;
+                    let current_score = best
+                        .as_ref()
+                        .map(|best| best.ratio)
+                        .unwrap_or(f64::INFINITY);
+                    if ratio < current_score {
                         best = Some(CycleCandidate {
                             ratio,
                             numerator,
                             denominator,
-                            cycle_edges: candidate.cycle.edges,
+                            cycle_edges: cycle.edges,
                         });
                     }
                 }
