@@ -1,6 +1,8 @@
+pub mod deterministic;
 pub mod dynamic;
 pub mod forest;
 pub mod hierarchy;
+pub mod lsst;
 pub mod mwu;
 pub mod shift;
 

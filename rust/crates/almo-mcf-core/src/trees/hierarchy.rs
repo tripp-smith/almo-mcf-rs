@@ -1,4 +1,6 @@
+use crate::graph::{Graph, NodeId};
 use crate::trees::forest::DynamicForest;
+use crate::trees::lsst::{build_lsst, Tree};
 use crate::trees::{LowStretchTree, TreeError};
 
 #[derive(Debug, Clone)]
@@ -103,4 +105,100 @@ impl HierarchicalTreeChain {
         level.forest.rebuild_all();
         Some(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Level {
+    pub forest: Vec<Tree>,
+    pub core: Graph,
+    pub mapping: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Decomposition {
+    pub levels: Vec<Level>,
+}
+
+impl Decomposition {
+    pub fn decompose(graph: &Graph, depth: usize) -> Result<Self, TreeError> {
+        let mut levels = Vec::new();
+        let mut current = graph.clone();
+        let mut gamma = 1.1;
+        for _ in 0..depth.max(1) {
+            let forest = build_lsst(&current, gamma)?;
+            let (core, mapping) = contract_low_degree(&current, gamma);
+            levels.push(Level {
+                forest,
+                core: core.clone(),
+                mapping,
+            });
+            if core.node_count() <= (current.node_count() / 2).max(1) {
+                current = core;
+            } else {
+                break;
+            }
+            gamma = (gamma * 1.05).min(2.0);
+        }
+        Ok(Self { levels })
+    }
+
+    pub fn unwind_path(&self, path: &[NodeId]) -> Vec<NodeId> {
+        let mut current = path.to_vec();
+        for level in self.levels.iter().rev() {
+            let mut expanded = Vec::new();
+            for node in &current {
+                let idx = node.0;
+                let original = level.mapping.get(idx).copied().unwrap_or(idx);
+                expanded.push(NodeId(original));
+            }
+            current = expanded;
+        }
+        current
+    }
+}
+
+fn contract_low_degree(graph: &Graph, gamma: f64) -> (Graph, Vec<usize>) {
+    let n = graph.node_count();
+    let threshold = ((n as f64).ln().max(1.0) * gamma).ceil() as usize;
+    let mut degrees = vec![0usize; n];
+    for (_, edge) in graph.edges() {
+        degrees[edge.tail.0] += 1;
+        degrees[edge.head.0] += 1;
+    }
+
+    let mut mapping = vec![usize::MAX; n];
+    let mut next_id = 0;
+    for node in 0..n {
+        if mapping[node] != usize::MAX {
+            continue;
+        }
+        if degrees[node] < threshold {
+            mapping[node] = next_id;
+            next_id += 1;
+        }
+    }
+    for node in 0..n {
+        if mapping[node] == usize::MAX {
+            mapping[node] = next_id;
+            next_id += 1;
+        }
+    }
+
+    if next_id > (n / 2).max(1) {
+        for node in 0..n {
+            mapping[node] = node / 2;
+        }
+        next_id = (n / 2).max(1);
+    }
+
+    let mut core = Graph::new(next_id);
+    for (_, edge) in graph.edges() {
+        let u = mapping[edge.tail.0];
+        let v = mapping[edge.head.0];
+        if u == v {
+            continue;
+        }
+        let _ = core.add_edge(NodeId(u), NodeId(v), edge.lower, edge.upper, edge.cost);
+    }
+    (core, mapping)
 }
