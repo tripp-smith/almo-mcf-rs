@@ -43,13 +43,13 @@ Sparsifies the core graph with embeddings.
 ### 5. Implement Branching-Tree-Chain and Min-Ratio Cycle Extraction (From Paper 1, Sections 7 & Algorithm 5)
 The query mechanism for approx min-ratio cycles.
 
-- [ ] Build hierarchical structure: \(d = \Omega(\log_{1/8} n)\) levels, each with LSD forest, core contraction, and spanner.
-- [ ] Implement cycle extraction: For off-tree edges, form fundamental cycles (tree paths + spanner cycles).
-- [ ] Compute gradient products and length overestimates for each cycle.
-- [ ] Select max-ratio cycle (approx min-ratio via \(m^{o(1)}\) factor).
-- [ ] Add circulation decomposition into \(O(\log n)\) tree-paths + \(m^{o(1)}\) off-tree edges.
-- [ ] Test end-to-end cycle queries on residual graphs, verifying approximation factors.
-- [ ] Integrate with IPM loop for repeated queries.
+- [x] Build hierarchical structure: \(d = \Omega(\log_{1/8} n)\) levels, each with LSD forest, core contraction, and spanner.
+- [x] Implement cycle extraction: For off-tree edges, form fundamental cycles (tree paths + spanner cycles).
+- [x] Compute gradient products and length overestimates for each cycle.
+- [x] Select max-ratio cycle (approx min-ratio via \(m^{o(1)}\) factor).
+- [x] Add circulation decomposition into \(O(\log n)\) tree-paths + \(m^{o(1)}\) off-tree edges.
+- [x] Test end-to-end cycle queries on residual graphs, verifying approximation factors.
+- [x] Integrate with IPM loop for repeated queries.
 
 ### 6. Implement HSFC Updates and Re-Building Game (From Paper 1, Section 6 & Algorithm 6; Enhanced in Paper 2)
 Amortizes updates and rebuilds.

@@ -43,3 +43,28 @@ fn ipm_solves_small_cycle() {
     ));
     assert_feasible(&problem, &result.flow);
 }
+
+#[test]
+fn ipm_full_dynamic_cycle_query_runs() {
+    let problem = McfProblem::new(
+        vec![0, 1, 2],
+        vec![1, 2, 0],
+        vec![0, 0, 0],
+        vec![3, 3, 3],
+        vec![2, -1, 0],
+        vec![0, 0, 0],
+    )
+    .unwrap();
+    let opts = McfOptions {
+        tolerance: 1e-6,
+        max_iters: 25,
+        strategy: Strategy::FullDynamic,
+        ..McfOptions::default()
+    };
+    let result = run_ipm(&problem, &opts).unwrap();
+    assert!(matches!(
+        result.termination,
+        IpmTermination::Converged | IpmTermination::NoImprovingCycle
+    ));
+    assert_feasible(&problem, &result.flow);
+}
