@@ -13,9 +13,11 @@ rayon = { version = "1.10", optional = true }
 [features]
 parallel = ["dep:rayon"]
 simd = []
+spanner-l-test = []
 
 [dev-dependencies]
 criterion = "0.5"
+proptest = "1.4"
 
 [[bench]]
 name = "bench_ipm"
@@ -27,4 +29,8 @@ harness = false
 
 [[bench]]
 name = "forests"
+harness = false
+
+[[bench]]
+name = "decremental_spanner"
 harness = false

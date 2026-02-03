@@ -33,12 +33,12 @@ Handles graph decomposition; start with randomized (Paper 1), then derandomize (
 ### 4. Implement Dynamic Decremental Spanner (From Paper 1, Theorem 5.1)
 Sparsifies the core graph with embeddings.
 
-- [ ] Define spanner parameters: \(O(n)\) edges, congestion/path length bounds, \(O(n^{1/L})\) recourse per batch (\(L = (\log m)^{1/4}\)).
-- [ ] Implement spanner construction: Build levels, expander decomposition for sparsification.
-- [ ] Add update operations: Batch insert/delete edges, split vertices, query embeddings.
-- [ ] Handle decremental updates (e.g., project affected edges, embed into levels).
-- [ ] Test spanner quality (stretch, size) on decremental graph sequences.
-- [ ] Ensure compatibility with core-graph contraction (e.g., output sparse \(S(G, F)\)).
+- [x] Define spanner parameters: \(O(n)\) edges, congestion/path length bounds, \(O(n^{1/L})\) recourse per batch (\(L = (\log m)^{1/4}\)).
+- [x] Implement spanner construction: Build levels, expander decomposition for sparsification.
+- [x] Add update operations: Batch insert/delete edges, split vertices, query embeddings.
+- [x] Handle decremental updates (e.g., project affected edges, embed into levels).
+- [x] Test spanner quality (stretch, size) on decremental graph sequences.
+- [x] Ensure compatibility with core-graph contraction (e.g., output sparse \(S(G, F)\)).
 
 ### 5. Implement Branching-Tree-Chain and Min-Ratio Cycle Extraction (From Paper 1, Sections 7 & Algorithm 5)
 The query mechanism for approx min-ratio cycles.
