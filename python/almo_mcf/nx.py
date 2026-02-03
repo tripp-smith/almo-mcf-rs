@@ -137,6 +137,8 @@ def min_cost_flow(
     *,
     use_ipm: bool | None = None,
     use_scaling: bool | None = None,
+    force_cost_scaling: bool | None = None,
+    disable_capacity_scaling: bool | None = None,
     strategy: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
@@ -166,11 +168,15 @@ def min_cost_flow(
         return_stats: When True, return (flow_dict, stats) including solver_mode.
         use_scaling: When True, always apply scaling. When False, never apply scaling.
             Defaults to auto-detect based on U/C bounds.
+        force_cost_scaling: When True, always apply the cost scaling phase.
+        disable_capacity_scaling: When True, skip the capacity scaling phase.
     """
     core = _load_core()
     tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
     lower, upper, cost, demand, capacity_scale = _scale_problem(lower, upper, cost, demand)
     use_scaling = _should_use_scaling(lower, upper, cost, demand, use_scaling)
+    if force_cost_scaling:
+        use_scaling = True
     if deterministic is None:
         deterministic = True
     if use_scaling and hasattr(core, "min_cost_flow_edges_with_scaling"):
@@ -189,6 +195,8 @@ def min_cost_flow(
             seed=seed,
             threads=threads,
             alpha=alpha,
+            force_cost_scaling=force_cost_scaling,
+            disable_capacity_scaling=disable_capacity_scaling,
             approx_factor=approx_factor,
             deterministic=deterministic,
         )
@@ -210,6 +218,8 @@ def min_cost_flow(
             alpha=alpha,
             use_ipm=use_ipm,
             use_scaling=use_scaling,
+            force_cost_scaling=force_cost_scaling,
+            disable_capacity_scaling=disable_capacity_scaling,
             approx_factor=approx_factor,
             deterministic=deterministic,
         )
@@ -244,6 +254,8 @@ def min_cost_flow_scaled(
     G,
     *,
     use_ipm: bool | None = None,
+    force_cost_scaling: bool | None = None,
+    disable_capacity_scaling: bool | None = None,
     strategy: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
@@ -260,6 +272,8 @@ def min_cost_flow_scaled(
         G,
         use_ipm=use_ipm,
         use_scaling=True,
+        force_cost_scaling=force_cost_scaling,
+        disable_capacity_scaling=disable_capacity_scaling,
         strategy=strategy,
         rebuild_every=rebuild_every,
         max_iters=max_iters,

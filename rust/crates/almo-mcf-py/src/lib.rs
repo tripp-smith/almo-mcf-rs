@@ -71,6 +71,8 @@ fn build_options(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     use_scaling: Option<bool>,
+    force_cost_scaling: Option<bool>,
+    disable_capacity_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<McfOptions> {
@@ -100,6 +102,12 @@ fn build_options(
     }
     if let Some(value) = use_scaling {
         opts.use_scaling = Some(value);
+    }
+    if let Some(value) = force_cost_scaling {
+        opts.force_cost_scaling = value;
+    }
+    if let Some(value) = disable_capacity_scaling {
+        opts.disable_capacity_scaling = value;
     }
     if let Some(value) = approx_factor {
         if value < 0.0 {
@@ -208,6 +216,8 @@ fn min_cost_flow_edges(
     alpha = None,
     use_ipm = None,
     use_scaling = None,
+    force_cost_scaling = None,
+    disable_capacity_scaling = None,
     approx_factor = None,
     deterministic = None
 ))]
@@ -229,6 +239,8 @@ fn min_cost_flow_edges_with_options(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     use_scaling: Option<bool>,
+    force_cost_scaling: Option<bool>,
+    disable_capacity_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
@@ -243,6 +255,8 @@ fn min_cost_flow_edges_with_options(
         alpha,
         use_ipm,
         use_scaling,
+        force_cost_scaling,
+        disable_capacity_scaling,
         approx_factor,
         deterministic,
     )?;
@@ -279,6 +293,8 @@ fn min_cost_flow_edges_with_options(
     seed = None,
     threads = None,
     alpha = None,
+    force_cost_scaling = None,
+    disable_capacity_scaling = None,
     approx_factor = None,
     deterministic = None
 ))]
@@ -298,6 +314,8 @@ fn min_cost_flow_edges_with_scaling(
     seed: Option<u64>,
     threads: Option<usize>,
     alpha: Option<f64>,
+    force_cost_scaling: Option<bool>,
+    disable_capacity_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<i64>>, Option<PyObject>)> {
@@ -312,6 +330,8 @@ fn min_cost_flow_edges_with_scaling(
         alpha,
         None,
         Some(true),
+        force_cost_scaling,
+        disable_capacity_scaling,
         approx_factor,
         deterministic,
     )?;
@@ -351,6 +371,8 @@ fn min_cost_flow_edges_with_scaling(
     alpha = None,
     use_ipm = None,
     use_scaling = None,
+    force_cost_scaling = None,
+    disable_capacity_scaling = None,
     approx_factor = None,
     deterministic = None
 ))]
@@ -372,6 +394,8 @@ fn run_ipm_edges(
     alpha: Option<f64>,
     use_ipm: Option<bool>,
     use_scaling: Option<bool>,
+    force_cost_scaling: Option<bool>,
+    disable_capacity_scaling: Option<bool>,
     approx_factor: Option<f64>,
     deterministic: Option<bool>,
 ) -> PyResult<(Py<PyArray1<f64>>, PyObject)> {
@@ -386,6 +410,8 @@ fn run_ipm_edges(
         alpha,
         use_ipm,
         use_scaling,
+        force_cost_scaling,
+        disable_capacity_scaling,
         approx_factor,
         deterministic,
     )?;

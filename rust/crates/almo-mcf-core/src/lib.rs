@@ -67,6 +67,8 @@ pub struct McfOptions {
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
     pub use_scaling: Option<bool>,
+    pub force_cost_scaling: bool,
+    pub disable_capacity_scaling: bool,
 }
 
 impl Default for McfOptions {
@@ -85,6 +87,8 @@ impl Default for McfOptions {
             initial_flow: None,
             initial_perturbation: 0.0,
             use_scaling: None,
+            force_cost_scaling: false,
+            disable_capacity_scaling: false,
         }
     }
 }
@@ -191,6 +195,15 @@ pub fn min_cost_flow_exact(
     finalize_ipm_solution(problem, ipm_result, ipm_stats)
 }
 
+pub fn min_cost_flow_scaled(
+    problem: &McfProblem,
+    opts: &McfOptions,
+) -> Result<McfSolution, McfError> {
+    let mut opts = opts.clone();
+    opts.use_scaling = Some(true);
+    scaling::solve_mcf_with_scaling(problem, &opts)
+}
+
 fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
     const SMALL_EDGE_LIMIT: usize = 12;
     const SMALL_NODE_LIMIT: usize = 8;
@@ -207,6 +220,9 @@ fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
 }
 
 fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
+    if opts.force_cost_scaling {
+        return true;
+    }
     if opts.use_scaling == Some(false) {
         return false;
     }
@@ -220,9 +236,9 @@ fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
         return true;
     }
 
-    let bound = (problem.edge_count().max(1) as i64)
-        .saturating_pow(3)
-        .max(1);
+    let m = problem.edge_count().max(1) as i64;
+    let bound = m.saturating_pow(3).max(1);
+    let poly_log_m = 10.0 * (m as f64).log2().max(1.0);
     let max_capacity = problem
         .upper
         .iter()
@@ -236,7 +252,10 @@ fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
         .max()
         .unwrap_or(0);
 
-    max_capacity > bound || max_cost > bound
+    let log_u = (max_capacity.max(1) as f64).log2();
+    let log_c = (max_cost.max(1) as f64).log2();
+
+    log_u > poly_log_m || log_c > poly_log_m || max_capacity > bound || max_cost > bound
 }
 
 fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
