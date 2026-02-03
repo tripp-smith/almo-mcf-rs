@@ -142,15 +142,13 @@ pub fn deterministic_weighted_tree(
     }
     let mut edge_ids: Vec<usize> = (0..tails.len()).collect();
     let mut rng = XorShift64::new(0x1234_5678_9abc_def0);
-    edge_ids.sort_by(|&a, &b| {
-        let wa = weights[a].max(1e-12_f64);
-        let wb = weights[b].max(1e-12_f64);
-        let score_a = lengths[a].abs() / wa * (1.0 + 1e-6 * rng.next_f64());
-        let score_b = lengths[b].abs() / wb * (1.0 + 1e-6 * rng.next_f64());
-        score_a
-            .partial_cmp(&score_b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let mut scores = Vec::with_capacity(edge_ids.len());
+    for edge_id in 0..edge_ids.len() {
+        let w = weights[edge_id].max(1e-12_f64);
+        let jitter = 1.0 + 1e-6 * rng.next_f64();
+        scores.push(lengths[edge_id].abs() / w * jitter);
+    }
+    edge_ids.sort_by(|&a, &b| scores[a].total_cmp(&scores[b]));
     let mut uf = UnionFind::new(node_count);
     let mut tree_edges = vec![false; tails.len()];
     for edge_id in edge_ids {
