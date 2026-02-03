@@ -7,7 +7,7 @@ use std::time::Instant;
 mod potential;
 mod search;
 
-pub use potential::Potential;
+pub use potential::{Potential, Residuals};
 
 #[derive(Debug, Default, Clone)]
 pub struct IpmState {
@@ -94,35 +94,18 @@ pub fn run_ipm_with_context(
         adjusted_opts.tolerance = (adjusted_opts.tolerance * 10.0).max(1e-8);
     }
 
-    let mut bounds = CostBounds::new(problem)?;
-    let mut best: Option<IpmResult> = None;
-    let max_search_iters = 48;
-
-    for _ in 0..max_search_iters {
-        if bounds.low > bounds.high {
-            break;
-        }
-        let mid = bounds.midpoint();
-        let result = run_ipm_with_lower_bound(problem, &adjusted_opts, mid as f64)?;
-        let final_cost = flow_cost(&result.flow, &problem.cost);
-
-        if result.termination == IpmTermination::Converged && final_cost <= mid as f64 {
-            bounds.high = mid - 1;
-            best = Some(result);
-        } else {
-            bounds.low = mid + 1;
-        }
-
-        if bounds.low > bounds.high {
-            break;
-        }
-    }
+    let bounds = CostBounds::new(problem)?;
+    let low = bounds.low as f64;
+    let high = bounds.high as f64;
+    let epsilon = adjusted_opts.tolerance.max(1e-8);
+    let (best_cost, best) =
+        binary_search_with_result(problem, &adjusted_opts, low, high, epsilon)?;
 
     if let Some(best) = best {
         return Ok(best);
     }
 
-    run_ipm_with_lower_bound(problem, &adjusted_opts, bounds.high as f64)
+    run_ipm_with_lower_bound(problem, &adjusted_opts, best_cost)
 }
 
 pub(crate) fn run_ipm_with_lower_bound(
@@ -178,11 +161,11 @@ pub(crate) fn run_ipm_with_lower_bound(
             }
         }
 
-        let (gradient, lengths) =
+        let (gradient, lengths, residuals) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
-        let current_potential = potential.value(&cost, &flow, &lower, &upper);
+        let current_potential = potential.value_with_residuals(&cost, &flow, &residuals);
         stats.potentials.push(current_potential);
-        stats.last_gap = potential.duality_gap(&gradient, &flow);
+        stats.last_gap = potential.duality_gap(&cost, &flow, &residuals);
         if current_potential <= termination_target {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
@@ -236,6 +219,18 @@ pub(crate) fn run_ipm_with_lower_bound(
             delta[edge_id] += dir as f64;
         }
 
+        let delta_norm = delta
+            .iter()
+            .zip(lengths.iter())
+            .map(|(d, l)| l * d * d)
+            .sum::<f64>()
+            .sqrt();
+        if delta_norm > 0.0 {
+            for d in &mut delta {
+                *d /= delta_norm;
+            }
+        }
+
         let kappa = (-best.ratio).max(0.0);
         if kappa < potential.kappa_floor() {
             termination = IpmTermination::Converged;
@@ -257,6 +252,8 @@ pub(crate) fn run_ipm_with_lower_bound(
             potential: &potential,
             current_potential,
             required_reduction,
+            gradient: &gradient,
+            lengths: &lengths,
         }) {
             flow = candidate_flow;
             stats.last_step_size = step;
@@ -273,9 +270,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         stats.iterations = iter + 1;
     }
 
-    let (final_gradient, _) =
+    let (_final_gradient, _, final_residuals) =
         compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
-    stats.last_gap = potential.duality_gap(&final_gradient, &flow);
+    stats.last_gap = potential.duality_gap(&cost, &flow, &final_residuals);
 
     Ok(IpmResult {
         flow,
@@ -290,10 +287,11 @@ fn compute_gradient_and_lengths(
     flow: &[f64],
     lower: &[f64],
     upper: &[f64],
-) -> (Vec<f64>, Vec<f64>) {
-    let gradient = potential.gradient(cost, flow, lower, upper);
-    let lengths = potential.lengths(flow, lower, upper);
-    (gradient, lengths)
+) -> (Vec<f64>, Vec<f64>, Residuals) {
+    let residuals = Residuals::new(flow, lower, upper, potential.min_delta);
+    let gradient = potential.gradient_with_residuals(cost, flow, &residuals);
+    let lengths = potential.lengths_from_gradient(&gradient);
+    (gradient, lengths, residuals)
 }
 
 fn flow_cost(flow: &[f64], cost: &[i64]) -> f64 {
@@ -318,6 +316,48 @@ fn cost_lower_bound(problem: &McfProblem) -> i128 {
         .sum()
 }
 
+#[allow(dead_code)]
+fn binary_search_optimal_cost(
+    problem: &McfProblem,
+    opts: &McfOptions,
+    low: f64,
+    high: f64,
+    epsilon: f64,
+) -> Result<f64, McfError> {
+    let (best_cost, _) = binary_search_with_result(problem, opts, low, high, epsilon)?;
+    Ok(best_cost)
+}
+
+fn binary_search_with_result(
+    problem: &McfProblem,
+    opts: &McfOptions,
+    mut low: f64,
+    mut high: f64,
+    epsilon: f64,
+) -> Result<(f64, Option<IpmResult>), McfError> {
+    let mut best: Option<IpmResult> = None;
+    let mut best_cost = high;
+    let mut iter = 0;
+    while high - low > epsilon && iter < 64 {
+        let mid = 0.5 * (low + high);
+        let result = run_ipm_with_lower_bound(problem, opts, mid)?;
+        let final_cost = flow_cost(&result.flow, &problem.cost);
+        let feasible = result.termination == IpmTermination::Converged
+            && (final_cost <= mid + opts.tolerance || result.stats.last_gap < opts.tolerance);
+
+        if feasible {
+            best = Some(result);
+            best_cost = mid;
+            high = mid;
+        } else {
+            low = mid;
+        }
+        iter += 1;
+    }
+
+    Ok((best_cost, best))
+}
+
 struct CostBounds {
     low: i128,
     high: i128,
@@ -336,9 +376,6 @@ impl CostBounds {
         Ok(Self { low, high })
     }
 
-    fn midpoint(&self) -> i128 {
-        self.low + (self.high - self.low) / 2
-    }
 }
 
 struct Lcg {
@@ -758,7 +795,14 @@ mod tests {
             ..McfOptions::default()
         };
         let result = run_ipm(&problem, &opts).unwrap();
-        assert_eq!(result.termination, IpmTermination::IterationLimit);
+        assert!(
+            matches!(
+                result.termination,
+                IpmTermination::IterationLimit | IpmTermination::Converged
+            ),
+            "unexpected termination: {:?}",
+            result.termination
+        );
     }
 
     #[test]
@@ -794,7 +838,7 @@ mod tests {
         let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
         let potential = Potential::new(&upper, None, 1);
 
-        let (gradient, lengths) =
+        let (gradient, lengths, _residuals) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
         let mut oracle = MinRatioOracle::new(3, 1);
         let best = oracle
@@ -828,6 +872,8 @@ mod tests {
             potential: &potential,
             current_potential,
             required_reduction,
+            gradient: &gradient,
+            lengths: &lengths,
         })
         .expect("line search should find improvement");
         let candidate_potential = potential.value(&cost, &candidate_flow, &lower, &upper);

@@ -1,5 +1,86 @@
-use crate::numerics::barrier::{barrier_gradient, barrier_lengths, safe_log};
-use crate::numerics::duality_gap_proxy;
+use crate::numerics::barrier::safe_log;
+use crate::numerics::GRADIENT_EPSILON;
+
+#[derive(Debug, Clone)]
+pub struct Residuals {
+    pub upper: Vec<f64>,
+    pub lower: Vec<f64>,
+}
+
+impl Residuals {
+    pub fn new(flow: &[f64], lower: &[f64], upper: &[f64], min_delta: f64) -> Self {
+        let mut upper_res = vec![0.0; flow.len()];
+        let mut lower_res = vec![0.0; flow.len()];
+        for ((u_res, l_res), ((f, l), u)) in upper_res
+            .iter_mut()
+            .zip(lower_res.iter_mut())
+            .zip(flow.iter().zip(lower.iter()).zip(upper.iter()))
+        {
+            *u_res = (*u - *f).max(min_delta);
+            *l_res = (*f - *l).max(min_delta);
+        }
+        Self {
+            upper: upper_res,
+            lower: lower_res,
+        }
+    }
+}
+
+pub fn compute_potential(
+    cost: &[f64],
+    flow: &[f64],
+    residuals: &Residuals,
+    alpha: f64,
+    beta: f64,
+    cost_lower_bound: f64,
+    min_gap: f64,
+) -> f64 {
+    let base_cost = cost
+        .iter()
+        .zip(flow.iter())
+        .map(|(c, f)| c * f)
+        .sum::<f64>();
+    let barrier = residuals
+        .upper
+        .iter()
+        .zip(residuals.lower.iter())
+        .map(|(upper, lower)| upper.powf(beta) + lower.powf(beta))
+        .sum::<f64>();
+    let gap = (base_cost - cost_lower_bound).max(min_gap);
+    base_cost + (1.0 / alpha) * safe_log(gap, min_gap) + barrier
+}
+
+pub fn compute_gradient(
+    cost: &[f64],
+    flow: &[f64],
+    residuals: &Residuals,
+    alpha: f64,
+    beta: f64,
+    cost_lower_bound: f64,
+    min_gap: f64,
+) -> Vec<f64> {
+    let base_cost = cost
+        .iter()
+        .zip(flow.iter())
+        .map(|(c, f)| c * f)
+        .sum::<f64>();
+    let gap = (base_cost - cost_lower_bound).max(min_gap);
+    let log_coeff = 1.0 / alpha;
+    cost.iter()
+        .zip(residuals.upper.iter().zip(residuals.lower.iter()))
+        .map(|(c, (upper, lower))| {
+            let barrier_term = beta * (upper.powf(beta - 1.0) - lower.powf(beta - 1.0));
+            c + log_coeff * (c / gap) + barrier_term
+        })
+        .collect()
+}
+
+pub fn compute_lengths(gradient: &[f64]) -> Vec<f64> {
+    gradient
+        .iter()
+        .map(|g| 1.0 / g.abs().max(GRADIENT_EPSILON))
+        .collect()
+}
 
 #[derive(Debug, Clone)]
 pub struct Potential {
@@ -30,12 +111,12 @@ impl Potential {
             .cloned()
             .fold(1.0_f64, |acc, value| acc.max(value.abs()).max(1.0));
         let m_u = (edge_count * max_upper).max(1.0);
-        let denom = (m_u.ln()).max(1.0);
+        let denom = (m_u.log2()).max(1.0);
         let default_alpha = 1.0 / (1000.0 * denom);
         let alpha = alpha_override
             .filter(|value| *value > 0.0)
             .unwrap_or(default_alpha);
-        let beta = beta_override.filter(|value| *value > 0.0).unwrap_or(0.5);
+        let beta = beta_override.filter(|value| *value > 0.0).unwrap_or(1.1);
         Self {
             alpha,
             beta,
@@ -48,43 +129,72 @@ impl Potential {
     }
 
     pub fn value(&self, cost: &[f64], flow: &[f64], lower: &[f64], upper: &[f64]) -> f64 {
-        let base_cost = cost
-            .iter()
-            .zip(flow.iter())
-            .map(|(c, f)| c * f)
-            .sum::<f64>();
-        let barrier = barrier_lengths(flow, lower, upper, self.beta, self.min_delta, self.threads)
-            .iter()
-            .sum::<f64>();
-        let gap = (base_cost - self.cost_lower_bound).max(self.rounding_threshold());
-        // Lemma 4.1 (Paper 1): use a log term on the cost gap and power barriers
-        // to drive potential reduction while staying strictly interior.
-        base_cost + self.alpha * safe_log(gap, self.rounding_threshold()) + barrier
+        let residuals = Residuals::new(flow, lower, upper, self.min_delta);
+        self.value_with_residuals(cost, flow, &residuals)
     }
 
-    pub fn lengths(&self, flow: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
-        barrier_lengths(flow, lower, upper, self.beta, self.min_delta, self.threads)
+    pub fn value_with_residuals(
+        &self,
+        cost: &[f64],
+        flow: &[f64],
+        residuals: &Residuals,
+    ) -> f64 {
+        compute_potential(
+            cost,
+            flow,
+            residuals,
+            self.alpha,
+            self.beta,
+            self.cost_lower_bound,
+            self.rounding_threshold(),
+        )
+    }
+
+    pub fn lengths_from_gradient(&self, gradient: &[f64]) -> Vec<f64> {
+        compute_lengths(gradient)
     }
 
     pub fn gradient(&self, cost: &[f64], flow: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
-        let barrier = barrier_gradient(flow, lower, upper, self.beta, self.min_delta, self.threads);
+        let residuals = Residuals::new(flow, lower, upper, self.min_delta);
+        self.gradient_with_residuals(cost, flow, &residuals)
+    }
+
+    pub fn gradient_with_residuals(
+        &self,
+        cost: &[f64],
+        flow: &[f64],
+        residuals: &Residuals,
+    ) -> Vec<f64> {
+        compute_gradient(
+            cost,
+            flow,
+            residuals,
+            self.alpha,
+            self.beta,
+            self.cost_lower_bound,
+            self.rounding_threshold(),
+        )
+    }
+
+    pub fn duality_gap(
+        &self,
+        cost: &[f64],
+        flow: &[f64],
+        residuals: &Residuals,
+    ) -> f64 {
         let base_cost = cost
             .iter()
             .zip(flow.iter())
             .map(|(c, f)| c * f)
             .sum::<f64>();
-        let gap = (base_cost - self.cost_lower_bound).max(self.rounding_threshold());
-        cost.iter()
-            .zip(barrier.iter())
-            .map(|(c, b)| {
-                debug_assert!(gap.is_sign_positive());
-                c + self.alpha * (c / gap) + b
-            })
-            .collect()
-    }
-
-    pub fn duality_gap(&self, gradient: &[f64], flow: &[f64]) -> f64 {
-        duality_gap_proxy(gradient, flow)
+        let barrier = residuals
+            .upper
+            .iter()
+            .zip(residuals.lower.iter())
+            .map(|(upper, lower)| upper.powf(self.beta) + lower.powf(self.beta))
+            .sum::<f64>();
+        let cost_gap = (base_cost - self.cost_lower_bound).max(0.0);
+        cost_gap + barrier / self.beta
     }
 
     pub fn termination_target(&self) -> f64 {
@@ -151,7 +261,7 @@ mod tests {
         for ((&base_value, &gap_value), &c) in
             base_grad.iter().zip(gap_grad.iter()).zip(cost.iter())
         {
-            let expected = base_value + with_gap.alpha * (c / gap - c / base_gap);
+            let expected = base_value + (c / gap - c / base_gap) / with_gap.alpha;
             assert!((gap_value - expected).abs() <= 1e-9);
         }
     }
@@ -177,8 +287,8 @@ mod tests {
         let gap = base_cost.max(potential.rounding_threshold());
         let upper_slack = (upper[0] - flow[0]).max(potential.min_delta);
         let lower_slack = (flow[0] - lower[0]).max(potential.min_delta);
-        let expected_barrier = 0.5 * upper_slack.powf(-1.5) - 0.5 * lower_slack.powf(-1.5);
-        let expected = cost[0] + potential.alpha * (cost[0] / gap) + expected_barrier;
+        let expected_barrier = 0.5 * (upper_slack.powf(-0.5) - lower_slack.powf(-0.5));
+        let expected = cost[0] + (cost[0] / gap) / potential.alpha + expected_barrier;
 
         let gradient = potential.gradient(&cost, &flow, &lower, &upper);
         assert!((gradient[0] - expected).abs() <= 1e-9);
