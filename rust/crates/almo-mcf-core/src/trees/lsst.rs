@@ -483,7 +483,7 @@ fn dijkstra_distance(
 
     impl Ord for State {
         fn cmp(&self, other: &Self) -> Ordering {
-            self.partial_cmp(other).unwrap_or(Ordering::Equal)
+            other.cost.total_cmp(&self.cost)
         }
     }
 
