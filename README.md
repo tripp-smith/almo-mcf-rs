@@ -17,6 +17,7 @@ output stays exact even when the dynamic oracle is conservative.
   - per-edge lower/upper capacities
   - integer edge costs
 - **IPM + rounding pipeline** with min-ratio cycle updates
+- **Capacity and cost scaling** for large \(U/C\) bounds
 - **NetworkX-compatible adapter** (`min_cost_flow`, `min_cost_flow_cost`)
 - **Rust core** with Python bindings via `maturin`
 - **Solver telemetry** (iterations, gap, termination) when requested
@@ -66,6 +67,7 @@ from almo_mcf import min_cost_flow
 flow, stats = min_cost_flow(
     G,
     use_ipm=True,            # force IPM path (set False for classic SSP)
+    use_scaling=None,        # auto-detect large U/C, set True/False to override
     deterministic=True,      # default; set False for randomized cycle selection
     strategy="periodic_rebuild",
     rebuild_every=25,
@@ -78,6 +80,13 @@ flow, stats = min_cost_flow(
 )
 print(stats)
 ```
+
+### Scaling for large capacity/cost bounds
+
+When inputs contain very large capacities or costs, the solver automatically
+enables capacity/cost scaling to keep the IPM rounds within polynomial bounds.
+You can override this behavior via `use_scaling=True` or
+`use_scaling=False`, or call the explicit helper `min_cost_flow_scaled`.
 
 ### Deterministic vs. randomized solver behavior
 
@@ -126,6 +135,17 @@ import numpy as np
 from almo_mcf import _core
 
 flow = _core.min_cost_flow_edges(
+    n,
+    np.asarray(tails, dtype=np.int64),
+    np.asarray(heads, dtype=np.int64),
+    np.asarray(lower, dtype=np.int64),
+    np.asarray(upper, dtype=np.int64),
+    np.asarray(cost, dtype=np.int64),
+    np.asarray(demand, dtype=np.int64),
+)
+
+# Force scaling in the core solver (useful for very large U/C bounds).
+flow, stats = _core.min_cost_flow_edges_with_scaling(
     n,
     np.asarray(tails, dtype=np.int64),
     np.asarray(heads, dtype=np.int64),

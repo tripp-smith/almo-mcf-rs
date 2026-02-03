@@ -12,12 +12,12 @@ This is the main loop for potential reduction via min-ratio cycle queries and fl
 ### 2. Implement Capacity and Cost Scaling (From Paper 1, Appendix C)
 Reduces inputs to poly bounds for IPM applicability.
 
-- [ ] Implement cost scaling (Algorithm 9): Binary search cost bounds, solve rounded instances using the IPM.
-- [ ] Implement capacity scaling (Algorithm 10): Binary search bottlenecks, compute unit-capacity min-cost circulations.
-- [ ] Ensure each scaling round calls the core IPM solver.
-- [ ] Handle polynomial bounds on \(U\) and \(C\) (e.g., via big integers in Rust if needed).
-- [ ] Test scaling independently on graphs with large \(U/C\), verifying reduction to poly(m) bounds.
-- [ ] Integrate as a wrapper around the main solver in the Python API.
+- [x] Implement cost scaling (Algorithm 9): Binary search cost bounds, solve rounded instances using the IPM.
+- [x] Implement capacity scaling (Algorithm 10): Binary search bottlenecks, compute unit-capacity min-cost circulations.
+- [x] Ensure each scaling round calls the core IPM solver.
+- [x] Handle polynomial bounds on \(U\) and \(C\) (e.g., via big integers in Rust if needed).
+- [x] Test scaling independently on graphs with large \(U/C\), verifying reduction to poly(m) bounds.
+- [x] Integrate as a wrapper around the main solver in the Python API.
 
 ### 3. Implement Low-Stretch Decomposition and Forests (From Papers 1 & 2, Sections 6)
 Handles graph decomposition; start with randomized (Paper 1), then derandomize (Paper 2).

@@ -23,7 +23,7 @@ from .extensions import (
     sparsest_cut,
     vertex_connectivity,
 )
-from .nx import min_cost_flow, min_cost_flow_cost
+from .nx import min_cost_flow, min_cost_flow_cost, min_cost_flow_scaled
 from .typing import FlowDict
 
 __all__ = [
@@ -36,6 +36,7 @@ __all__ = [
     "min_cost_flow",
     "min_cost_flow_convex",
     "min_cost_flow_cost",
+    "min_cost_flow_scaled",
     "sparsest_cut",
     "vertex_connectivity",
     "__version__",

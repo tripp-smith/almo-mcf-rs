@@ -49,3 +49,18 @@ def test_min_cost_flow_edges_with_options_returns_stats():
     )
     assert flow.tolist() == [3]
     assert stats is None or {"iterations", "final_gap", "termination"} <= set(stats.keys())
+
+
+def test_min_cost_flow_edges_with_scaling():
+    flow, stats = _core.min_cost_flow_edges_with_scaling(
+        2,
+        np.asarray([0], dtype=np.int64),
+        np.asarray([1], dtype=np.int64),
+        np.asarray([0], dtype=np.int64),
+        np.asarray([1], dtype=np.int64),
+        np.asarray([5], dtype=np.int64),
+        np.asarray([-1, 1], dtype=np.int64),
+        max_iters=25,
+    )
+    assert flow.tolist() == [1]
+    assert stats is None or {"iterations", "final_gap", "termination"} <= set(stats.keys())

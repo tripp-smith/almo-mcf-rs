@@ -3,6 +3,7 @@ pub mod ipm;
 pub mod min_ratio;
 pub mod numerics;
 pub mod rounding;
+pub mod scaling;
 pub mod spanner;
 pub mod trees;
 
@@ -56,6 +57,7 @@ pub struct McfOptions {
     pub deterministic: bool,
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
+    pub use_scaling: Option<bool>,
 }
 
 impl Default for McfOptions {
@@ -73,6 +75,7 @@ impl Default for McfOptions {
             deterministic: true,
             initial_flow: None,
             initial_perturbation: 0.0,
+            use_scaling: None,
         }
     }
 }
@@ -155,6 +158,9 @@ pub fn min_cost_flow_exact(
     problem: &McfProblem,
     opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
+    if should_use_scaling(problem, opts) {
+        return scaling::solve_mcf_with_scaling(problem, opts);
+    }
     if should_use_classic(problem, opts) {
         return solve_classic(problem);
     }
@@ -173,33 +179,7 @@ pub fn min_cost_flow_exact(
         ipm_result.termination,
     ));
 
-    if ipm_result.termination != IpmTermination::Converged {
-        let mut solution = solve_classic(problem)?;
-        solution.ipm_stats = ipm_stats;
-        return Ok(solution);
-    }
-
-    let gap_threshold = rounding_gap_threshold(problem);
-    if ipm_result.stats.last_gap > gap_threshold {
-        let mut solution = solve_classic(problem)?;
-        solution.ipm_stats = ipm_stats;
-        return Ok(solution);
-    }
-
-    let rounded = match round_fractional_flow(problem, &ipm_result.flow) {
-        Ok(solution) => solution,
-        Err(err) => {
-            if matches!(err, McfError::Infeasible) {
-                let mut solution = solve_classic(problem)?;
-                solution.ipm_stats = ipm_stats;
-                return Ok(solution);
-            }
-            return Err(err);
-        }
-    };
-    let mut solution = rounded;
-    solution.ipm_stats = ipm_stats;
-    Ok(solution)
+    finalize_ipm_solution(problem, ipm_result, ipm_stats)
 }
 
 fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
@@ -215,6 +195,39 @@ fn should_use_classic(problem: &McfProblem, opts: &McfOptions) -> bool {
         return false;
     }
     problem.edge_count() <= SMALL_EDGE_LIMIT || problem.node_count <= SMALL_NODE_LIMIT
+}
+
+fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
+    if opts.use_scaling == Some(false) {
+        return false;
+    }
+    if should_use_classic(problem, opts) {
+        return false;
+    }
+    if opts.use_ipm == Some(false) || opts.max_iters == 0 {
+        return false;
+    }
+    if opts.use_scaling == Some(true) {
+        return true;
+    }
+
+    let bound = (problem.edge_count().max(1) as i64)
+        .saturating_pow(3)
+        .max(1);
+    let max_capacity = problem
+        .upper
+        .iter()
+        .map(|value| value.abs())
+        .max()
+        .unwrap_or(0);
+    let max_cost = problem
+        .cost
+        .iter()
+        .map(|value| value.abs())
+        .max()
+        .unwrap_or(0);
+
+    max_capacity > bound || max_cost > bound
 }
 
 fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
@@ -302,13 +315,47 @@ fn solve_classic(problem: &McfProblem) -> Result<McfSolution, McfError> {
 }
 
 impl IpmSummary {
-    fn from_ipm(stats: &IpmStats, termination: IpmTermination) -> Self {
+    pub(crate) fn from_ipm(stats: &IpmStats, termination: IpmTermination) -> Self {
         Self {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
             termination,
         }
     }
+}
+
+pub(crate) fn finalize_ipm_solution(
+    problem: &McfProblem,
+    ipm_result: ipm::IpmResult,
+    ipm_stats: Option<IpmSummary>,
+) -> Result<McfSolution, McfError> {
+    if ipm_result.termination != IpmTermination::Converged {
+        let mut solution = solve_classic(problem)?;
+        solution.ipm_stats = ipm_stats;
+        return Ok(solution);
+    }
+
+    let gap_threshold = rounding_gap_threshold(problem);
+    if ipm_result.stats.last_gap > gap_threshold {
+        let mut solution = solve_classic(problem)?;
+        solution.ipm_stats = ipm_stats;
+        return Ok(solution);
+    }
+
+    let rounded = match round_fractional_flow(problem, &ipm_result.flow) {
+        Ok(solution) => solution,
+        Err(err) => {
+            if matches!(err, McfError::Infeasible) {
+                let mut solution = solve_classic(problem)?;
+                solution.ipm_stats = ipm_stats;
+                return Ok(solution);
+            }
+            return Err(err);
+        }
+    };
+    let mut solution = rounded;
+    solution.ipm_stats = ipm_stats;
+    Ok(solution)
 }
 
 #[cfg(test)]

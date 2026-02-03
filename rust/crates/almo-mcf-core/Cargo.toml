@@ -5,6 +5,8 @@ edition = "2021"
 license = "Apache-2.0"
 
 [dependencies]
+num-bigint = "0.4"
+num-traits = "0.2"
 rayon = { version = "1.10", optional = true }
 
 [features]
