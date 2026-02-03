@@ -133,12 +133,7 @@ impl Potential {
         self.value_with_residuals(cost, flow, &residuals)
     }
 
-    pub fn value_with_residuals(
-        &self,
-        cost: &[f64],
-        flow: &[f64],
-        residuals: &Residuals,
-    ) -> f64 {
+    pub fn value_with_residuals(&self, cost: &[f64], flow: &[f64], residuals: &Residuals) -> f64 {
         compute_potential(
             cost,
             flow,
@@ -176,12 +171,7 @@ impl Potential {
         )
     }
 
-    pub fn duality_gap(
-        &self,
-        cost: &[f64],
-        flow: &[f64],
-        residuals: &Residuals,
-    ) -> f64 {
+    pub fn duality_gap(&self, cost: &[f64], flow: &[f64], residuals: &Residuals) -> f64 {
         let base_cost = cost
             .iter()
             .zip(flow.iter())

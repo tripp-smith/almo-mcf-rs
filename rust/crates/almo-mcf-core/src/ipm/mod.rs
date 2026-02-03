@@ -98,8 +98,7 @@ pub fn run_ipm_with_context(
     let low = bounds.low as f64;
     let high = bounds.high as f64;
     let epsilon = adjusted_opts.tolerance.max(1e-8);
-    let (best_cost, best) =
-        binary_search_with_result(problem, &adjusted_opts, low, high, epsilon)?;
+    let (best_cost, best) = binary_search_with_result(problem, &adjusted_opts, low, high, epsilon)?;
 
     if let Some(best) = best {
         return Ok(best);
@@ -375,7 +374,6 @@ impl CostBounds {
         };
         Ok(Self { low, high })
     }
-
 }
 
 struct Lcg {
