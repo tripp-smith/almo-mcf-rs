@@ -54,13 +54,13 @@ The query mechanism for approx min-ratio cycles.
 ### 6. Implement HSFC Updates and Re-Building Game (From Paper 1, Section 6 & Algorithm 6; Enhanced in Paper 2)
 Amortizes updates and rebuilds.
 
-- [ ] Define HSFC properties: Circulations \(c(t)\), widths \(w(t)\), stability (doubles only on updated edges).
-- [ ] Implement lazy gradient/length updates using HSFC guarantees.
-- [ ] Code re-building game: Track round/fix counts per level, preemptively rebuild on thresholds, handle losses.
-- [ ] Add failure detection and bottom-up rebuilds (amortized \(O(m^{o(1)}(m + T))\)).
-- [ ] For derandomization: Apply recursive shifting to propagate updates only to active forests.
-- [ ] Test amortization: Simulate adversarial updates, measure rebuild frequency.
-- [ ] Integrate updates into the tree-chain query structure.
+- [x] Define HSFC properties: Circulations \(c(t)\), widths \(w(t)\), stability (doubles only on updated edges).
+- [x] Implement lazy gradient/length updates using HSFC guarantees.
+- [x] Code re-building game: Track round/fix counts per level, preemptively rebuild on thresholds, handle losses.
+- [x] Add failure detection and bottom-up rebuilds (amortized \(O(m^{o(1)}(m + T))\)).
+- [x] For derandomization: Apply recursive shifting to propagate updates only to active forests.
+- [x] Test amortization: Simulate adversarial updates, measure rebuild frequency.
+- [x] Integrate updates into the tree-chain query structure.
 
 ### 7. Integration, Optimization, and Testing for Full Almost-Linear Solver
 Brings everything together, ensures determinism, and verifies performance.
