@@ -88,7 +88,7 @@ pub fn cost_scaling(
     let max_rounds = (bigint_bits(&high) + 1).max(1) as usize;
 
     let mut best: Option<IpmResult> = None;
-    let mut last_flow: Option<Vec<i64>> = opts.initial_flow.clone();
+    let mut last_flow = feasible_initial_flow(problem, opts.initial_flow.clone());
 
     for round in 0..max_rounds {
         if low > high {
@@ -96,7 +96,7 @@ pub fn cost_scaling(
         }
         let midpoint = (&low + &high) / BigInt::from(2);
         let mut round_opts = opts.clone();
-        round_opts.initial_flow = last_flow.clone();
+        round_opts.initial_flow = feasible_initial_flow(&scaled_problem, last_flow.clone());
 
         let start = Instant::now();
         let ipm_result = ipm::run_ipm_with_context(
@@ -123,7 +123,7 @@ pub fn cost_scaling(
             termination: ipm_result.termination,
         });
 
-        last_flow = Some(flow_to_i64(&ipm_result.flow));
+        last_flow = feasible_initial_flow(&scaled_problem, Some(flow_to_i64(&ipm_result.flow)));
 
         if solved_cost <= midpoint {
             high = midpoint - BigInt::one();
@@ -158,13 +158,13 @@ pub fn capacity_scaling(
         divisor = scale_factor;
     }
 
-    let mut last_flow: Option<Vec<i64>> = opts.initial_flow.clone();
-    let mut phase = 0;
     let mut scaled_problem = scale_problem(problem, divisor)?;
+    let mut last_flow = feasible_initial_flow(&scaled_problem, opts.initial_flow.clone());
+    let mut phase = 0;
 
     while divisor >= scale_factor {
         let mut round_opts = opts.clone();
-        round_opts.initial_flow = last_flow.clone();
+        round_opts.initial_flow = feasible_initial_flow(&scaled_problem, last_flow.clone());
         let ipm_result = ipm::run_ipm_with_context(
             &scaled_problem,
             &round_opts,
@@ -187,14 +187,15 @@ pub fn capacity_scaling(
         });
 
         if divisor == scale_factor {
-            last_flow = Some(flow_to_i64(&ipm_result.flow));
+            last_flow = feasible_initial_flow(&scaled_problem, Some(flow_to_i64(&ipm_result.flow)));
             break;
         }
 
         let next_divisor = divisor / 2;
-        last_flow = Some(scale_flow(&ipm_result.flow, divisor / next_divisor));
+        let scaled_flow = scale_flow(&ipm_result.flow, divisor / next_divisor);
+        scaled_problem = scale_problem(problem, next_divisor)?;
+        last_flow = feasible_initial_flow(&scaled_problem, Some(scaled_flow));
         divisor = next_divisor;
-        scaled_problem = scale_problem(problem, divisor)?;
         phase += 1;
     }
 
@@ -401,21 +402,36 @@ fn bigint_bits(value: &BigInt) -> u64 {
     if value.is_zero() {
         return 1;
     }
-    value.bits()
-}
-
-trait BigIntBits {
-    fn bits(&self) -> u64;
-}
-
-impl BigIntBits for BigInt {
-    fn bits(&self) -> u64 {
-        let mut value = self.abs();
-        let mut bits = 0;
-        while value > BigInt::zero() {
-            value >>= 1;
-            bits += 1;
-        }
-        bits.max(1)
+    let mut value = value.abs();
+    let mut bits = 0;
+    while value > BigInt::zero() {
+        value >>= 1;
+        bits += 1;
     }
+    bits.max(1)
+}
+
+fn feasible_initial_flow(problem: &McfProblem, flow: Option<Vec<i64>>) -> Option<Vec<i64>> {
+    let flow = flow?;
+    if flow.len() != problem.edge_count() {
+        return None;
+    }
+    let mut balance = vec![0_i64; problem.node_count];
+    for (idx, &value) in flow.iter().enumerate() {
+        let lower = problem.lower[idx];
+        let upper = problem.upper[idx];
+        if value < lower || value > upper {
+            return None;
+        }
+        let tail = problem.tails[idx] as usize;
+        let head = problem.heads[idx] as usize;
+        balance[tail] = balance[tail].checked_sub(value)?;
+        balance[head] = balance[head].checked_add(value)?;
+    }
+    for (node, &demand) in problem.demands.iter().enumerate() {
+        if balance[node] != demand {
+            return None;
+        }
+    }
+    Some(flow)
 }
