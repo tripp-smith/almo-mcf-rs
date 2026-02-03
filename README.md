@@ -226,8 +226,8 @@ cargo build -p almo-mcf-core
 
 The IPM + min-ratio cycle approach follows the ideas in:
 
-- Aaron Bernstein, Jonathan R. Kelner, and S. Matthew Weinberg. *Almost-Linear Min-Cost Flow in Directed Graphs*. arXiv:2203.00671, 2022. https://arxiv.org/abs/2203.00671
-- Aaron Bernstein, Jonathan R. Kelner, and S. Matthew Weinberg. *Derandomization for Almost-Linear Min-Cost Flow*. arXiv:2309.16629, 2023. https://arxiv.org/abs/2309.16629
+- Li Chen, Rasmus Kyng, Yang P. Liu, Richard Peng, Maximilian Probst Gutenberg, and Sushant Sachdeva. *Maximum Flow and Minimum-Cost Flow in Almost-Linear Time*. arXiv:2203.00671, 2022. https://arxiv.org/abs/2203.00671
+- Jan van den Brand, Li Chen, Rasmus Kyng, Yang P. Liu, Richard Peng, Maximilian Probst Gutenberg, Sushant Sachdeva, and Aaron Sidford. *A Deterministic Almost-Linear Time Algorithm for Minimum-Cost Flow*. arXiv:2309.16629, 2023. https://arxiv.org/abs/2309.16629
 
 ## License
 
