@@ -46,6 +46,13 @@ pub enum Strategy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OracleMode {
+    Dynamic,
+    Fallback,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolverMode {
     Classic,
     Ipm,
@@ -60,6 +67,7 @@ pub struct McfOptions {
     pub tolerance: f64,
     pub max_iters: usize,
     pub strategy: Strategy,
+    pub oracle_mode: OracleMode,
     pub threads: usize,
     pub alpha: Option<f64>,
     pub use_ipm: Option<bool>,
@@ -80,6 +88,7 @@ impl Default for McfOptions {
             tolerance: 1e-9,
             max_iters: 10_000,
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
+            oracle_mode: OracleMode::Hybrid,
             threads: 1,
             alpha: None,
             use_ipm: None,

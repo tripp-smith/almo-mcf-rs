@@ -782,6 +782,13 @@ impl FullDynamicOracle {
         Ok(best)
     }
 
+    pub fn loss_count(&self) -> usize {
+        self.branching_chain
+            .as_ref()
+            .map(|chain| chain.loss_count)
+            .unwrap_or(0)
+    }
+
     pub fn reduce_edge(
         &mut self,
         edge_id: usize,
