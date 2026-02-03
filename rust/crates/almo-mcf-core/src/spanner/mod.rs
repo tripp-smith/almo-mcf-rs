@@ -3,13 +3,21 @@ use std::collections::VecDeque;
 
 use crate::trees::LowStretchTree;
 
+pub mod construction;
 pub mod decremental;
+pub mod dynamic;
+pub mod integration;
 pub mod oracle;
+pub mod params;
 
+pub use construction::{build_spanner, LevelGraph, Spanner};
 pub use decremental::{
     build_spanner_on_core, ContractedGraph, DecrementalSpanner, DecrementalSpannerParams,
     GraphLayer, LSForest, SplitInfo,
 };
+pub use dynamic::SpannerUpdates;
+pub use integration::{contract_with_spanner, CoreGraph};
+pub use params::{SolverOptions, SpannerConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingStep {
