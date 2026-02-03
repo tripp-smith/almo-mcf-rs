@@ -3,7 +3,13 @@ use std::collections::VecDeque;
 
 use crate::trees::LowStretchTree;
 
+pub mod decremental;
 pub mod oracle;
+
+pub use decremental::{
+    build_spanner_on_core, ContractedGraph, DecrementalSpanner, DecrementalSpannerParams,
+    GraphLayer, LSForest, SplitInfo,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingStep {
