@@ -1,4 +1,4 @@
-use crate::min_ratio::branching_tree_chain::BranchingTreeChain;
+use crate::min_ratio::branching_tree_chain::{BranchingTreeChain, RebuildContext};
 use crate::min_ratio::hsfc::{HSFCUpdateResult, HiddenStableFlowChasing};
 use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
@@ -607,7 +607,6 @@ impl FullDynamicOracle {
 
     fn ensure_stable(
         &mut self,
-        iter: usize,
         node_count: usize,
         tails: &[u32],
         heads: &[u32],
@@ -620,6 +619,13 @@ impl FullDynamicOracle {
             gradients: gradients.to_vec(),
             lengths: lengths.to_vec(),
         };
+        let rebuild_context = RebuildContext {
+            node_count,
+            tails,
+            heads,
+            lengths,
+            deterministic: self.deterministic,
+        };
         let result = self.apply_hsfc_update(&update);
         if result.stable {
             if let Some(chain) = self.branching_chain.as_mut() {
@@ -627,15 +633,7 @@ impl FullDynamicOracle {
                 if should_rebuild {
                     chain.record_failure(0, "round threshold triggered rebuild");
                     chain.reset_game_state(0);
-                    chain.rebuild_level(
-                        0,
-                        node_count,
-                        tails,
-                        heads,
-                        lengths,
-                        self.deterministic,
-                        false,
-                    )?;
+                    chain.rebuild_level(0, rebuild_context, false)?;
                 }
             }
             return Ok(());
@@ -643,15 +641,7 @@ impl FullDynamicOracle {
         if let Some(chain) = self.branching_chain.as_mut() {
             chain.record_failure(0, "HSFC instability detected");
             if !chain.attempt_fix(0) || chain.handle_loss(0) {
-                chain.rebuild_level(
-                    0,
-                    node_count,
-                    tails,
-                    heads,
-                    lengths,
-                    self.deterministic,
-                    true,
-                )?;
+                chain.rebuild_level(0, rebuild_context, true)?;
             }
         }
         Ok(())
@@ -688,15 +678,7 @@ impl FullDynamicOracle {
         let dirty_edges = self.record_updates(gradients, lengths);
         self.ensure_tree_chain(iter, node_count, tails, heads, lengths)?;
         self.ensure_branching_chain(node_count, tails, heads, lengths)?;
-        self.ensure_stable(
-            iter,
-            node_count,
-            tails,
-            heads,
-            gradients,
-            lengths,
-            &dirty_edges,
-        )?;
+        self.ensure_stable(node_count, tails, heads, gradients, lengths, &dirty_edges)?;
         if self.record_adversary_update(self.hierarchy.levels.len()) {
             self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             self.force_tree_chain_rebuild(iter, node_count, tails, heads, lengths)?;

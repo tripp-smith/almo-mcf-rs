@@ -39,8 +39,7 @@ pub struct HiddenStableFlowChasing {
 
 impl HiddenStableFlowChasing {
     pub fn new(edge_count: usize) -> Self {
-        let mut history = Vec::new();
-        history.push(HSFCState::new(edge_count));
+        let history = vec![HSFCState::new(edge_count)];
         Self { history, eps: 1e-9 }
     }
 
@@ -58,6 +57,10 @@ impl HiddenStableFlowChasing {
 
     pub fn len(&self) -> usize {
         self.history.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.history.is_empty()
     }
 
     pub fn get_circulation(&self, t: usize) -> Option<&Vec<f64>> {

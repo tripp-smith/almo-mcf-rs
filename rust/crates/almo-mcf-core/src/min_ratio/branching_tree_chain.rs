@@ -64,6 +64,15 @@ pub struct RebuildGameState {
     pub fix_threshold: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RebuildContext<'a> {
+    pub node_count: usize,
+    pub tails: &'a [u32],
+    pub heads: &'a [u32],
+    pub lengths: &'a [f64],
+    pub deterministic: bool,
+}
+
 impl RebuildGameState {
     pub fn new(round_threshold: usize, fix_threshold: usize) -> Self {
         Self {
@@ -286,11 +295,7 @@ impl BranchingTreeChain {
     pub fn rebuild_level(
         &mut self,
         level: usize,
-        node_count: usize,
-        tails: &[u32],
-        heads: &[u32],
-        lengths: &[f64],
-        deterministic: bool,
+        context: RebuildContext<'_>,
         bottom_up: bool,
     ) -> Result<(), TreeError> {
         if level >= self.levels.len() {
@@ -302,13 +307,13 @@ impl BranchingTreeChain {
             level + 1
         };
         let (rebuilt, _logs) = BranchingTreeChain::build(
-            node_count,
-            tails,
-            heads,
-            lengths,
+            context.node_count,
+            context.tails,
+            context.heads,
+            context.lengths,
             Some(target_levels),
             self.reduction_factor,
-            deterministic,
+            context.deterministic,
         )?;
         if bottom_up {
             self.levels = rebuilt.levels;
