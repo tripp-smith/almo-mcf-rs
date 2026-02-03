@@ -681,15 +681,12 @@ pub fn build_random_lsst(
 
     for _ in 0..rounds {
         edge_ids.shuffle(&mut rng);
-        edge_ids.sort_by(|&a, &b| {
-            let jitter_a: f64 = rng.gen::<f64>() * (1.0 / stretch_target);
-            let jitter_b: f64 = rng.gen::<f64>() * (1.0 / stretch_target);
-            let score_a = lengths[a].abs() * (1.0 + jitter_a);
-            let score_b = lengths[b].abs() * (1.0 + jitter_b);
-            score_a
-                .partial_cmp(&score_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        let mut scores: Vec<f64> = Vec::with_capacity(edge_count);
+        for &length in lengths {
+            let jitter: f64 = rng.gen::<f64>() * (1.0 / stretch_target);
+            scores.push(length.abs() * (1.0 + jitter));
+        }
+        edge_ids.sort_by(|&a, &b| scores[a].total_cmp(&scores[b]));
 
         let mut uf = UnionFind::new(node_count);
         let mut tree_edges = vec![false; edge_count];
