@@ -1,5 +1,6 @@
 use crate::spanner::decremental::{ContractedGraph, DecrementalSpannerParams, LSForest};
 use crate::spanner::{build_spanner_on_core, DecrementalSpanner};
+use crate::trees::shift::ShiftableForestCollection;
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 use std::time::Instant;
 
@@ -19,6 +20,14 @@ pub struct LevelData {
 pub struct BranchingTreeChain {
     pub levels: Vec<LevelData>,
     pub reduction_factor: f64,
+    pub rebuild_game: Vec<RebuildGameState>,
+    pub rebuild_threshold: usize,
+    pub fix_threshold: usize,
+    pub loss_threshold: usize,
+    pub loss_count: usize,
+    pub failure_log: Vec<String>,
+    pub shiftable_forests: Option<ShiftableForestCollection>,
+    pub shift_threshold: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +53,27 @@ pub struct CycleCandidate {
     pub cycle: Cycle,
     pub ratio: f64,
     pub metrics: CycleMetrics,
+}
+
+#[derive(Debug, Clone)]
+pub struct RebuildGameState {
+    pub round_count: usize,
+    pub fix_count: usize,
+    pub loss_count: usize,
+    pub round_threshold: usize,
+    pub fix_threshold: usize,
+}
+
+impl RebuildGameState {
+    pub fn new(round_threshold: usize, fix_threshold: usize) -> Self {
+        Self {
+            round_count: 0,
+            fix_count: 0,
+            loss_count: 0,
+            round_threshold: round_threshold.max(1),
+            fix_threshold: fix_threshold.max(1),
+        }
+    }
 }
 
 impl BranchingTreeChain {
@@ -153,10 +183,38 @@ impl BranchingTreeChain {
                 .unwrap_or_default();
         }
 
+        let rebuild_threshold = ((node_count as f64).ln().ceil() as usize).max(1);
+        let fix_threshold = ((node_count as f64).ln().powi(2).ceil() as usize).max(2);
+        let loss_threshold = 2;
+        let rebuild_game = (0..levels.len())
+            .map(|_| RebuildGameState::new(rebuild_threshold, fix_threshold))
+            .collect();
+        let shift_threshold = (node_count as f64).sqrt().ceil() as usize;
+        let shiftable_forests = if deterministic {
+            ShiftableForestCollection::build_deterministic(
+                node_count,
+                tails,
+                heads,
+                lengths,
+                3,
+                levels.len(),
+            )
+            .ok()
+        } else {
+            None
+        };
         Ok((
             Self {
                 levels,
                 reduction_factor,
+                rebuild_game,
+                rebuild_threshold,
+                fix_threshold,
+                loss_threshold,
+                loss_count: 0,
+                failure_log: Vec::new(),
+                shiftable_forests,
+                shift_threshold: shift_threshold.max(1),
             },
             logs,
         ))
@@ -167,6 +225,116 @@ impl BranchingTreeChain {
             if lengths.len() == level.lengths.len() {
                 level.lengths.clone_from_slice(lengths);
             }
+        }
+    }
+
+    pub fn update_level_zero_lengths_partial(&mut self, dirty_edges: &[usize], lengths: &[f64]) {
+        if let Some(level) = self.levels.first_mut() {
+            for &edge_id in dirty_edges {
+                if let Some(length) = lengths.get(edge_id) {
+                    if edge_id < level.lengths.len() {
+                        level.lengths[edge_id] = *length;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn advance_round(&mut self, level: usize) -> bool {
+        let Some(state) = self.rebuild_game.get_mut(level) else {
+            return false;
+        };
+        state.round_count = state.round_count.saturating_add(1);
+        state.round_count >= state.round_threshold
+    }
+
+    pub fn attempt_fix(&mut self, level: usize) -> bool {
+        let Some(state) = self.rebuild_game.get_mut(level) else {
+            return false;
+        };
+        state.fix_count = state.fix_count.saturating_add(1);
+        if state.fix_count >= state.fix_threshold {
+            state.loss_count = state.loss_count.saturating_add(1);
+            state.fix_count = 0;
+            return false;
+        }
+        true
+    }
+
+    pub fn handle_loss(&mut self, level: usize) -> bool {
+        let Some(state) = self.rebuild_game.get_mut(level) else {
+            return false;
+        };
+        state.loss_count = state.loss_count.saturating_add(1);
+        self.loss_count = self.loss_count.saturating_add(1);
+        state.loss_count >= self.loss_threshold.max(1)
+    }
+
+    pub fn record_failure(&mut self, level: usize, reason: impl Into<String>) {
+        let msg = format!("level {level}: {}", reason.into());
+        self.failure_log.push(msg);
+    }
+
+    pub fn reset_game_state(&mut self, level: usize) {
+        if let Some(state) = self.rebuild_game.get_mut(level) {
+            state.round_count = 0;
+            state.fix_count = 0;
+            state.loss_count = 0;
+        }
+    }
+
+    pub fn rebuild_level(
+        &mut self,
+        level: usize,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        deterministic: bool,
+        bottom_up: bool,
+    ) -> Result<(), TreeError> {
+        if level >= self.levels.len() {
+            return Ok(());
+        }
+        let target_levels = if bottom_up {
+            self.levels.len()
+        } else {
+            level + 1
+        };
+        let (rebuilt, _logs) = BranchingTreeChain::build(
+            node_count,
+            tails,
+            heads,
+            lengths,
+            Some(target_levels),
+            self.reduction_factor,
+            deterministic,
+        )?;
+        if bottom_up {
+            self.levels = rebuilt.levels;
+        } else {
+            for idx in 0..=level {
+                if let Some(level_data) = rebuilt.levels.get(idx) {
+                    if idx < self.levels.len() {
+                        self.levels[idx] = level_data.clone();
+                    }
+                }
+            }
+        }
+        self.rebuild_game = (0..self.levels.len())
+            .map(|_| RebuildGameState::new(self.rebuild_threshold, self.fix_threshold))
+            .collect();
+        Ok(())
+    }
+
+    pub fn propagate_update(&mut self, level: usize, dirty_edges: &[usize]) {
+        let Some(shiftable) = self.shiftable_forests.as_mut() else {
+            return;
+        };
+        if dirty_edges.len() >= self.shift_threshold {
+            let _ = shiftable.shift(level);
+        } else {
+            shiftable.propagate(level);
         }
     }
 
@@ -593,4 +761,37 @@ fn shortest_path_edges(
     }
     edges.reverse();
     Some(edges)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebuild_game_advances_and_triggers_loss() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let lengths = vec![1.0, 1.0, 1.0, 1.0];
+        let (mut chain, _) =
+            BranchingTreeChain::build(3, &tails, &heads, &lengths, Some(2), 0.8, true)
+                .expect("chain should build");
+        assert!(!chain.advance_round(0));
+        assert!(chain.advance_round(0));
+        assert!(chain.attempt_fix(0));
+        assert!(!chain.attempt_fix(0));
+        assert!(chain.handle_loss(0));
+    }
+
+    #[test]
+    fn deterministic_propagation_shifts_when_threshold_exceeded() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let lengths = vec![1.0, 1.0, 1.0, 1.0];
+        let (mut chain, _) =
+            BranchingTreeChain::build(3, &tails, &heads, &lengths, Some(2), 0.8, true)
+                .expect("chain should build");
+        let dirty = vec![0, 1, 2, 3];
+        chain.propagate_update(0, &dirty);
+        assert!(chain.shiftable_forests.is_some());
+    }
 }

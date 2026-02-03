@@ -1,4 +1,5 @@
 use crate::min_ratio::branching_tree_chain::BranchingTreeChain;
+use crate::min_ratio::hsfc::{HSFCUpdateResult, HiddenStableFlowChasing};
 use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
@@ -255,6 +256,13 @@ impl TreeChainHierarchy {
 }
 
 #[derive(Debug, Clone)]
+pub struct IpmUpdate {
+    pub dirty_edges: Vec<usize>,
+    pub gradients: Vec<f64>,
+    pub lengths: Vec<f64>,
+}
+
+#[derive(Debug, Clone)]
 pub struct FullDynamicOracle {
     hierarchy: TreeChainHierarchy,
     spanner: EdgeSpanner,
@@ -269,6 +277,7 @@ pub struct FullDynamicOracle {
     last_lengths: Vec<f64>,
     last_edge_count: usize,
     node_count: usize,
+    hsfc: HiddenStableFlowChasing,
     gradient_change: f64,
     length_factor: f64,
     instability_exponent: f64,
@@ -309,6 +318,7 @@ impl FullDynamicOracle {
             last_lengths: Vec::new(),
             last_edge_count: 0,
             node_count: 0,
+            hsfc: HiddenStableFlowChasing::new(0),
             gradient_change: 0.5,
             length_factor: 1.25,
             instability_exponent: 0.1,
@@ -367,6 +377,7 @@ impl FullDynamicOracle {
             .rebuild_from_snapshot(node_count, tails, heads, gradients, lengths);
         self.last_edge_count = tails.len();
         self.node_count = node_count;
+        self.hsfc.reset(tails.len());
     }
 
     fn rebuild_tree_chain(
@@ -497,40 +508,45 @@ impl FullDynamicOracle {
         }
     }
 
-    fn refresh_spanner_values(&mut self, gradients: &[f64], lengths: &[f64]) {
-        for (edge_id, (&gradient, &length)) in gradients.iter().zip(lengths.iter()).enumerate() {
-            self.spanner
-                .update_edge_values(edge_id, length.abs(), gradient);
-        }
-    }
-
     pub fn set_instability_exponent(&mut self, exponent: f64) {
         self.instability_exponent = exponent;
     }
 
-    fn record_updates(&mut self, gradients: &[f64], lengths: &[f64]) {
-        if self.last_gradients.is_empty() || self.last_lengths.is_empty() {
+    fn record_updates(&mut self, gradients: &[f64], lengths: &[f64]) -> Vec<usize> {
+        if self.last_gradients.is_empty()
+            || self.last_lengths.is_empty()
+            || self.last_gradients.len() != gradients.len()
+            || self.last_lengths.len() != lengths.len()
+        {
             self.last_gradients = gradients.to_vec();
             self.last_lengths = lengths.to_vec();
-            return;
+            return (0..gradients.len()).collect();
         }
         let mut instability = 0_usize;
-        for ((&prev_g, &prev_l), (&g, &l)) in self
+        let mut dirty_edges = Vec::new();
+        for (edge_id, ((&prev_g, &prev_l), (&g, &l))) in self
             .last_gradients
             .iter()
             .zip(self.last_lengths.iter())
             .zip(gradients.iter().zip(lengths.iter()))
+            .enumerate()
         {
+            let mut dirty = false;
             if (g - prev_g).abs() > self.gradient_change {
                 instability += 1;
                 self.amortized.record_update();
+                dirty = true;
             }
             if prev_l > 0.0 && l > 0.0 {
                 let ratio = if l > prev_l { l / prev_l } else { prev_l / l };
                 if ratio > self.length_factor {
                     instability += 1;
                     self.amortized.record_update();
+                    dirty = true;
                 }
+            }
+            if dirty {
+                dirty_edges.push(edge_id);
             }
         }
         if instability > 0 {
@@ -538,6 +554,7 @@ impl FullDynamicOracle {
         }
         self.last_gradients = gradients.to_vec();
         self.last_lengths = lengths.to_vec();
+        dirty_edges
     }
 
     fn record_adversary_update(&mut self, instability: usize) -> bool {
@@ -547,6 +564,97 @@ impl FullDynamicOracle {
             return true;
         }
         false
+    }
+
+    fn refresh_spanner_values_lazy(
+        &mut self,
+        dirty_edges: &[usize],
+        gradients: &[f64],
+        lengths: &[f64],
+    ) {
+        for &edge_id in dirty_edges {
+            if let (Some(&gradient), Some(&length)) = (gradients.get(edge_id), lengths.get(edge_id))
+            {
+                self.spanner
+                    .update_edge_values(edge_id, length.abs(), gradient);
+            }
+        }
+    }
+
+    fn hsfc_witness_values(&self, gradients: &[f64], lengths: &[f64]) -> Vec<f64> {
+        gradients
+            .iter()
+            .zip(lengths.iter())
+            .map(|(&g, &l)| if l.abs() > 0.0 { g / l } else { g })
+            .collect()
+    }
+
+    pub fn apply_hsfc_update(&mut self, update: &IpmUpdate) -> HSFCUpdateResult {
+        if self.hsfc.edge_count() != update.gradients.len() {
+            self.hsfc.reset(update.gradients.len());
+        }
+        let witness = self.hsfc_witness_values(&update.gradients, &update.lengths);
+        let result = self.hsfc.update(&update.dirty_edges, &witness);
+        self.refresh_spanner_values_lazy(&update.dirty_edges, &update.gradients, &update.lengths);
+        if let Some(chain) = self.branching_chain.as_mut() {
+            chain.update_level_zero_lengths_partial(&update.dirty_edges, &update.lengths);
+            if self.deterministic {
+                chain.propagate_update(0, &update.dirty_edges);
+            }
+        }
+        result
+    }
+
+    fn ensure_stable(
+        &mut self,
+        iter: usize,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        gradients: &[f64],
+        lengths: &[f64],
+        dirty_edges: &[usize],
+    ) -> Result<(), TreeError> {
+        let update = IpmUpdate {
+            dirty_edges: dirty_edges.to_vec(),
+            gradients: gradients.to_vec(),
+            lengths: lengths.to_vec(),
+        };
+        let result = self.apply_hsfc_update(&update);
+        if result.stable {
+            if let Some(chain) = self.branching_chain.as_mut() {
+                let should_rebuild = chain.advance_round(0);
+                if should_rebuild {
+                    chain.record_failure(0, "round threshold triggered rebuild");
+                    chain.reset_game_state(0);
+                    chain.rebuild_level(
+                        0,
+                        node_count,
+                        tails,
+                        heads,
+                        lengths,
+                        self.deterministic,
+                        false,
+                    )?;
+                }
+            }
+            return Ok(());
+        }
+        if let Some(chain) = self.branching_chain.as_mut() {
+            chain.record_failure(0, "HSFC instability detected");
+            if !chain.attempt_fix(0) || chain.handle_loss(0) {
+                chain.rebuild_level(
+                    0,
+                    node_count,
+                    tails,
+                    heads,
+                    lengths,
+                    self.deterministic,
+                    true,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     pub fn identify_high_flow_edges(&self, gradients: &[f64], lengths: &[f64]) -> Vec<usize> {
@@ -575,12 +683,20 @@ impl FullDynamicOracle {
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.amortized.record_query();
         self.ensure_spanner(node_count, tails, heads, gradients, lengths);
-        self.refresh_spanner_values(gradients, lengths);
         self.hierarchy
             .update_instability_threshold(tails.len(), self.instability_exponent);
-        self.record_updates(gradients, lengths);
+        let dirty_edges = self.record_updates(gradients, lengths);
         self.ensure_tree_chain(iter, node_count, tails, heads, lengths)?;
         self.ensure_branching_chain(node_count, tails, heads, lengths)?;
+        self.ensure_stable(
+            iter,
+            node_count,
+            tails,
+            heads,
+            gradients,
+            lengths,
+            &dirty_edges,
+        )?;
         if self.record_adversary_update(self.hierarchy.levels.len()) {
             self.rebuild_spanner(node_count, tails, heads, gradients, lengths);
             self.force_tree_chain_rebuild(iter, node_count, tails, heads, lengths)?;
@@ -1307,5 +1423,29 @@ mod tests {
         let lengths = vec![1.0, 1.0, 10.0];
         let high_flow = oracle.identify_high_flow_edges(&gradients, &lengths);
         assert_eq!(high_flow, vec![0]);
+    }
+
+    #[test]
+    fn adversarial_updates_trigger_hsfc_failure_logging() {
+        let tails = vec![0, 1, 2, 0];
+        let heads = vec![1, 2, 0, 2];
+        let gradients = vec![0.1, -0.2, 0.05, -0.3];
+        let lengths = vec![1.0, 1.0, 1.0, 1.0];
+        let mut dynamic = FullDynamicOracle::new(81, 2, 1, 3, 0.0, true);
+        dynamic.gradient_change = 1000.0;
+        dynamic.length_factor = 1000.0;
+        dynamic
+            .best_cycle(0, 3, &tails, &heads, &gradients, &lengths)
+            .unwrap();
+        let updated_gradients = vec![10.0, 9.0, 8.0, 7.0];
+        dynamic
+            .best_cycle(1, 3, &tails, &heads, &updated_gradients, &lengths)
+            .unwrap();
+        let failures = dynamic
+            .branching_chain
+            .as_ref()
+            .map(|chain| chain.failure_log.len())
+            .unwrap_or(0);
+        assert!(failures > 0);
     }
 }
