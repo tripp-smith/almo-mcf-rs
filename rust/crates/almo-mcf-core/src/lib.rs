@@ -1,4 +1,5 @@
 pub mod graph;
+pub mod hsfc;
 pub mod ipm;
 pub mod min_ratio;
 pub mod numerics;
