@@ -34,15 +34,15 @@ fn randomized_lsst_has_bounded_average_stretch() {
         debug: false,
     };
     let (tree, stretch) = build_random_lsst(&graph, &lengths, config).unwrap();
-    let mut total = 0.0;
-    let mut count = 0.0;
+    let mut total: f64 = 0.0;
+    let mut count: f64 = 0.0;
     for value in stretch {
         if value.is_finite() {
             total += value;
             count += 1.0;
         }
     }
-    let avg = total / count.max(1.0);
+    let avg = total / count.max(1.0_f64);
     let log_n = (graph.node_count() as f64).ln().max(1.0);
     let bound = 50.0 * log_n.powi(4);
     assert!(avg.is_finite());

@@ -96,8 +96,8 @@ pub fn sample_weighted_trees(
         )?;
         let mut stretch_sum = 0.0;
         let mut stretch_count = 0.0;
-        for edge_id in 0..edge_count {
-            if circulation[edge_id].abs() > 0.0 {
+        for (edge_id, circulation_value) in circulation.iter().enumerate().take(edge_count) {
+            if circulation_value.abs() > 0.0 {
                 if let Some(stretch) = tree.edge_stretch(edge_id, tails, heads, lengths) {
                     stretch_sum += stretch;
                     stretch_count += 1.0;

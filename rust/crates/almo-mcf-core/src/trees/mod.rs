@@ -723,7 +723,7 @@ pub fn build_random_lsst(
         if config.debug {
             let _ = avg_stretch;
         }
-        if best_stretch.map_or(true, |best| avg_stretch < best) {
+        if best_stretch.is_none_or(|best| avg_stretch < best) {
             best_tree = Some(tree);
             best_stretch = Some(avg_stretch);
         }
