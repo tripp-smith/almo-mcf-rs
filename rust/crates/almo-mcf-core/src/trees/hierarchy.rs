@@ -168,25 +168,25 @@ fn contract_low_degree(graph: &Graph, gamma: f64) -> (Graph, Vec<usize>) {
 
     let mut mapping = vec![usize::MAX; n];
     let mut next_id = 0;
-    for node in 0..n {
-        if mapping[node] != usize::MAX {
+    for (node, value) in mapping.iter_mut().enumerate().take(n) {
+        if *value != usize::MAX {
             continue;
         }
         if degrees[node] < threshold {
-            mapping[node] = next_id;
+            *value = next_id;
             next_id += 1;
         }
     }
-    for node in 0..n {
-        if mapping[node] == usize::MAX {
-            mapping[node] = next_id;
+    for value in mapping.iter_mut().take(n) {
+        if *value == usize::MAX {
+            *value = next_id;
             next_id += 1;
         }
     }
 
     if next_id > (n / 2).max(1) {
-        for node in 0..n {
-            mapping[node] = node / 2;
+        for (node, value) in mapping.iter_mut().enumerate().take(n) {
+            *value = node / 2;
         }
         next_id = (n / 2).max(1);
     }

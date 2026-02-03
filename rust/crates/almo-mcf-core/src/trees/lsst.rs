@@ -327,7 +327,7 @@ pub fn estimate_average_stretch(
         return Ok(f64::INFINITY);
     }
     let adjacency = build_weighted_adjacency(graph);
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0x51ab_1e_u64);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0x0051_ab1e_u64);
     let mut stretch_sum = 0.0;
     let mut stretch_count = 0.0;
 
@@ -477,7 +477,7 @@ fn dijkstra_distance(
 
     impl PartialOrd for State {
         fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            other.cost.partial_cmp(&self.cost)
+            Some(self.cmp(other))
         }
     }
 

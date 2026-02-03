@@ -25,6 +25,12 @@ impl UpdateBatch {
     }
 }
 
+impl Default for UpdateBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub struct Shifter {
     forests: Vec<Forest>,
