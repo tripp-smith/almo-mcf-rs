@@ -6,6 +6,7 @@ use crate::spanner::construction::{build_level, contract_layer, greedy_cluster, 
 use crate::spanner::construction::{LevelEdge, Spanner};
 use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
 use crate::trees::{LowStretchTree, TreeBuildMode};
+use rayon::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct InstabilityTracker {
@@ -204,38 +205,79 @@ impl Spanner {
                 heap.push(Reverse(level));
             }
         }
-        while let Some(Reverse(level)) = heap.pop() {
-            if self.pending_levels[level].is_empty() {
+        #[derive(Debug)]
+        struct LevelUpdate {
+            level: usize,
+            cluster: Vec<usize>,
+            sparse_edges: Vec<usize>,
+            sparse_adjacency: Vec<Vec<usize>>,
+            changed_edges: usize,
+        }
+
+        while !heap.is_empty() {
+            let mut batch = Vec::new();
+            while let Some(Reverse(level)) = heap.pop() {
+                if !self.pending_levels[level].is_empty() {
+                    batch.push(level);
+                }
+            }
+            if batch.is_empty() {
                 continue;
             }
-            let node_count = self.levels[level].node_count;
-            let target = ((node_count.max(2) as f64).ln().ceil() as usize).max(1);
-            let new_cluster = greedy_cluster(
-                node_count,
-                &self.levels[level].edges,
-                &self.levels[level].adjacency,
-                target,
-                self.config.deterministic,
-            );
-            let size_bound = self.level_size_bound(node_count);
-            let (new_sparse, new_sparse_adj) = sparsify_level(
-                node_count,
-                &self.levels[level].edges,
-                &self.levels[level].adjacency,
-                &new_cluster,
-                size_bound,
-                self.config.deterministic,
-                self.config.deterministic_seed,
-            );
-            let changed = count_edge_changes(&self.levels[level].sparse_edges, &new_sparse);
-            self.recourse_this_batch = self.recourse_this_batch.saturating_add(changed);
-            self.levels[level].cluster_map = new_cluster;
-            self.levels[level].sparse_edges = new_sparse;
-            self.levels[level].sparse_adjacency = new_sparse_adj;
-            self.pending_levels[level].clear();
-            if level + 1 < self.levels.len() {
-                self.pending_levels[level + 1].extend(0..self.levels[level + 1].edges.len());
-                heap.push(Reverse(level + 1));
+            batch.sort_unstable();
+            if cfg!(debug_assertions) {
+                eprintln!(
+                    "dynamic spanner: updating levels {:?} using {} rayon threads",
+                    batch,
+                    rayon::current_num_threads()
+                );
+            }
+            let updates: Vec<LevelUpdate> = batch
+                .par_iter()
+                .map(|&level| {
+                    let node_count = self.levels[level].node_count;
+                    let target = ((node_count.max(2) as f64).ln().ceil() as usize).max(1);
+                    let new_cluster = greedy_cluster(
+                        node_count,
+                        &self.levels[level].edges,
+                        &self.levels[level].adjacency,
+                        target,
+                        self.config.deterministic,
+                    );
+                    let size_bound = self.level_size_bound(node_count);
+                    let (new_sparse, new_sparse_adj) = sparsify_level(
+                        node_count,
+                        &self.levels[level].edges,
+                        &self.levels[level].adjacency,
+                        &new_cluster,
+                        size_bound,
+                        self.config.deterministic,
+                        self.config.deterministic_seed,
+                    );
+                    let changed = count_edge_changes(&self.levels[level].sparse_edges, &new_sparse);
+                    LevelUpdate {
+                        level,
+                        cluster: new_cluster,
+                        sparse_edges: new_sparse,
+                        sparse_adjacency: new_sparse_adj,
+                        changed_edges: changed,
+                    }
+                })
+                .collect();
+
+            for update in updates {
+                let level = update.level;
+                self.recourse_this_batch = self
+                    .recourse_this_batch
+                    .saturating_add(update.changed_edges);
+                self.levels[level].cluster_map = update.cluster;
+                self.levels[level].sparse_edges = update.sparse_edges;
+                self.levels[level].sparse_adjacency = update.sparse_adjacency;
+                self.pending_levels[level].clear();
+                if level + 1 < self.levels.len() {
+                    self.pending_levels[level + 1].extend(0..self.levels[level + 1].edges.len());
+                    heap.push(Reverse(level + 1));
+                }
             }
         }
     }

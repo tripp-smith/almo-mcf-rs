@@ -158,6 +158,9 @@ fn build_options(
             }
         };
     }
+    if opts.deterministic {
+        opts.threads = 1;
+    }
     Ok(opts)
 }
 
@@ -197,6 +200,9 @@ fn stats_to_dict(
     dict.set_item("iterations", iterations)?;
     dict.set_item("final_gap", final_gap)?;
     if let Some(summary) = summary {
+        dict.set_item("cycle_scoring_ms", summary.cycle_scoring_ms)?;
+        dict.set_item("barrier_compute_ms", summary.barrier_compute_ms)?;
+        dict.set_item("spanner_update_ms", summary.spanner_update_ms)?;
         dict.set_item("rounding_performed", summary.rounding_performed)?;
         dict.set_item("rounding_success", summary.rounding_success)?;
         dict.set_item("final_integer_cost", summary.final_integer_cost)?;
@@ -460,6 +466,9 @@ fn run_ipm_edges(
     let summary = almo_mcf_core::IpmSummary {
         iterations: ipm_result.stats.iterations,
         final_gap: ipm_result.stats.last_gap,
+        cycle_scoring_ms: ipm_result.stats.cycle_times_ms.iter().sum(),
+        barrier_compute_ms: ipm_result.stats.barrier_times_ms.iter().sum(),
+        spanner_update_ms: ipm_result.stats.spanner_update_times_ms.iter().sum(),
         termination: ipm_result.termination,
         oracle_mode: ipm_result.stats.oracle_mode,
         deterministic_mode_used: opts.deterministic,

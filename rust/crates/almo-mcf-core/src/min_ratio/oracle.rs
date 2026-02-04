@@ -1,9 +1,11 @@
 use crate::min_ratio::{
-    best_cycle_over_edges, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
+    score_edge_cycle, select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery,
+    TreeError,
 };
 use crate::spanner::DynamicSpanner;
 use crate::trees::dynamic::{DynamicTreeChain, DynamicTreeChainConfig};
 use crate::trees::TreeBuildMode;
+use rayon::prelude::*;
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -161,13 +163,36 @@ impl DynamicOracle {
         let Some(tree) = level.trees.first() else {
             return Ok(None);
         };
-        let best = best_cycle_over_edges(
-            tree,
-            query.tails,
-            query.heads,
-            query.gradients,
-            query.lengths,
-        );
+        let edge_count = query.tails.len();
+        if edge_count == 0 {
+            return Ok(None);
+        }
+        let candidates: Vec<usize> = (0..edge_count).collect();
+        let threads = rayon::current_num_threads().max(1);
+        let chunk_size = (edge_count / threads).max(64);
+        let best = candidates
+            .par_chunks(chunk_size)
+            .filter_map(|chunk| {
+                let mut local_best: Option<CycleCandidate> = None;
+                for &edge_id in chunk {
+                    let Some(candidate) = score_edge_cycle(
+                        tree,
+                        edge_id,
+                        query.tails,
+                        query.heads,
+                        query.gradients,
+                        query.lengths,
+                    ) else {
+                        continue;
+                    };
+                    local_best = Some(match local_best {
+                        Some(current) => select_better_candidate(current, candidate),
+                        None => candidate,
+                    });
+                }
+                local_best
+            })
+            .reduce_with(select_better_candidate);
         Ok(best)
     }
 }
