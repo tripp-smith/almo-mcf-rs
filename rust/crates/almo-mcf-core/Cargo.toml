@@ -8,10 +8,10 @@ license = "Apache-2.0"
 num-bigint = "0.4"
 num-traits = "0.2"
 rand = "0.8"
-rayon = { version = "1.10", optional = true }
+rayon = "1.10"
 
 [features]
-parallel = ["dep:rayon"]
+parallel = []
 simd = []
 spanner-l-test = []
 

@@ -23,7 +23,10 @@ pub struct IpmStats {
     pub potentials: Vec<f64>,
     pub last_gap: f64,
     pub oracle_mode: OracleMode,
+    pub cycle_times_ms: Vec<f64>,
+    pub barrier_times_ms: Vec<f64>,
     pub update_times_ms: Vec<f64>,
+    pub spanner_update_times_ms: Vec<f64>,
     pub instability_per_level: Vec<f64>,
     pub rebuild_counts: Vec<usize>,
     pub oracle_update_count: usize,
@@ -192,7 +195,10 @@ pub(crate) fn run_ipm_with_lower_bound(
         potentials: Vec::new(),
         last_gap: f64::INFINITY,
         oracle_mode: opts.oracle_mode,
+        cycle_times_ms: Vec::new(),
+        barrier_times_ms: Vec::new(),
         update_times_ms: Vec::new(),
+        spanner_update_times_ms: Vec::new(),
         instability_per_level: Vec::new(),
         rebuild_counts: Vec::new(),
         oracle_update_count: 0,
@@ -213,8 +219,12 @@ pub(crate) fn run_ipm_with_lower_bound(
             }
         }
 
+        let barrier_start = Instant::now();
         let (gradient, lengths, residuals) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+        stats
+            .barrier_times_ms
+            .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
         let current_potential = potential.value_with_residuals(&cost, &flow, &residuals);
         stats.potentials.push(current_potential);
         stats.last_gap = potential.duality_gap(&cost, &flow, &residuals);
@@ -248,6 +258,7 @@ pub(crate) fn run_ipm_with_lower_bound(
             break;
         }
 
+        let cycle_start = Instant::now();
         let best = if !using_fallback {
             if let Some(oracle) = dynamic_oracle.as_mut() {
                 let best = oracle
@@ -287,6 +298,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         } else {
             None
         };
+        stats
+            .cycle_times_ms
+            .push(cycle_start.elapsed().as_secs_f64() * 1000.0);
         let Some(best) = best else {
             termination = IpmTermination::NoImprovingCycle;
             stats.iterations = iter;
@@ -368,8 +382,12 @@ pub(crate) fn run_ipm_with_lower_bound(
                     }
                 }
 
+                let barrier_start = Instant::now();
                 let (new_gradient, new_lengths, _) =
                     compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+                stats
+                    .barrier_times_ms
+                    .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
                 let mut g_updates = Vec::new();
                 let mut ell_updates = Vec::new();
                 for (edge_id, (&g_new, &l_new)) in
@@ -387,6 +405,7 @@ pub(crate) fn run_ipm_with_lower_bound(
                     let update_result = oracle.update_many(&g_updates, &ell_updates);
                     let elapsed = update_start.elapsed().as_secs_f64() * 1000.0;
                     stats.update_times_ms.push(elapsed);
+                    stats.spanner_update_times_ms.push(elapsed);
                     stats.oracle_update_count = stats.oracle_update_count.saturating_add(1);
                     stats.instability_per_level = oracle.instability_per_level();
                     stats.rebuild_counts = oracle.rebuild_counts();

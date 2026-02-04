@@ -1,3 +1,5 @@
+#[cfg(feature = "simd")]
+use crate::numerics::barrier::barrier_power_simd;
 use crate::numerics::barrier::safe_log;
 use crate::numerics::GRADIENT_EPSILON;
 
@@ -40,6 +42,17 @@ pub fn compute_potential(
         .zip(flow.iter())
         .map(|(c, f)| c * f)
         .sum::<f64>();
+    #[cfg(feature = "simd")]
+    let barrier = {
+        let upper = barrier_power_simd(&residuals.upper, beta);
+        let lower = barrier_power_simd(&residuals.lower, beta);
+        upper
+            .iter()
+            .zip(lower.iter())
+            .map(|(upper, lower)| upper + lower)
+            .sum::<f64>()
+    };
+    #[cfg(not(feature = "simd"))]
     let barrier = residuals
         .upper
         .iter()
@@ -66,13 +79,28 @@ pub fn compute_gradient(
         .sum::<f64>();
     let gap = (base_cost - cost_lower_bound).max(min_gap);
     let log_coeff = 1.0 / alpha;
-    cost.iter()
-        .zip(residuals.upper.iter().zip(residuals.lower.iter()))
-        .map(|(c, (upper, lower))| {
-            let barrier_term = beta * (upper.powf(beta - 1.0) - lower.powf(beta - 1.0));
-            c + log_coeff * (c / gap) + barrier_term
-        })
-        .collect()
+    #[cfg(feature = "simd")]
+    {
+        let upper_pow = barrier_power_simd(&residuals.upper, beta - 1.0);
+        let lower_pow = barrier_power_simd(&residuals.lower, beta - 1.0);
+        cost.iter()
+            .enumerate()
+            .map(|(idx, c)| {
+                let barrier_term = beta * (upper_pow[idx] - lower_pow[idx]);
+                c + log_coeff * (c / gap) + barrier_term
+            })
+            .collect()
+    }
+    #[cfg(not(feature = "simd"))]
+    {
+        cost.iter()
+            .zip(residuals.upper.iter().zip(residuals.lower.iter()))
+            .map(|(c, (upper, lower))| {
+                let barrier_term = beta * (upper.powf(beta - 1.0) - lower.powf(beta - 1.0));
+                c + log_coeff * (c / gap) + barrier_term
+            })
+            .collect()
+    }
 }
 
 pub fn compute_lengths(gradient: &[f64]) -> Vec<f64> {
@@ -177,6 +205,17 @@ impl Potential {
             .zip(flow.iter())
             .map(|(c, f)| c * f)
             .sum::<f64>();
+        #[cfg(feature = "simd")]
+        let barrier = {
+            let upper = barrier_power_simd(&residuals.upper, self.beta);
+            let lower = barrier_power_simd(&residuals.lower, self.beta);
+            upper
+                .iter()
+                .zip(lower.iter())
+                .map(|(upper, lower)| upper + lower)
+                .sum::<f64>()
+        };
+        #[cfg(not(feature = "simd"))]
         let barrier = residuals
             .upper
             .iter()

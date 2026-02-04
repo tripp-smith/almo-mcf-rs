@@ -39,6 +39,9 @@ pub struct McfSolution {
 pub struct IpmSummary {
     pub iterations: usize,
     pub final_gap: f64,
+    pub cycle_scoring_ms: f64,
+    pub barrier_compute_ms: f64,
+    pub spanner_update_ms: f64,
     pub termination: IpmTermination,
     pub oracle_mode: OracleMode,
     pub deterministic_mode_used: bool,
@@ -195,18 +198,47 @@ impl McfProblem {
     }
 }
 
+fn initialize_thread_pool(opts: &McfOptions) {
+    let mut threads = opts.threads;
+    if opts.deterministic {
+        threads = 1;
+    }
+    if threads <= 1 {
+        return;
+    }
+    if threads == 0 {
+        return;
+    }
+    if rayon::current_num_threads() == threads {
+        return;
+    }
+    if let Err(err) = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build_global()
+    {
+        if cfg!(debug_assertions) {
+            eprintln!("rayon thread pool init skipped: {err}");
+        }
+    }
+}
+
 pub fn min_cost_flow_exact(
     problem: &McfProblem,
     opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
-    if should_use_scaling(problem, opts) {
-        return scaling::solve_mcf_with_scaling(problem, opts);
+    let mut opts = opts.clone();
+    if opts.deterministic {
+        opts.threads = 1;
     }
-    if should_use_classic(problem, opts) {
+    initialize_thread_pool(&opts);
+    if should_use_scaling(problem, &opts) {
+        return scaling::solve_mcf_with_scaling(problem, &opts);
+    }
+    if should_use_classic(problem, &opts) {
         return solve_classic_with_mode(problem, SolverMode::Classic);
     }
 
-    let ipm_result = match ipm::run_ipm(problem, opts) {
+    let ipm_result = match ipm::run_ipm(problem, &opts) {
         Ok(result) => result,
         Err(err) => {
             if matches!(err, McfError::InvalidInput(_)) {
@@ -218,10 +250,10 @@ pub fn min_cost_flow_exact(
     let ipm_stats = Some(IpmSummary::from_ipm(
         &ipm_result.stats,
         ipm_result.termination,
-        opts,
+        &opts,
     ));
 
-    finalize_ipm_solution(problem, ipm_result, ipm_stats, opts)
+    finalize_ipm_solution(problem, ipm_result, ipm_stats, &opts)
 }
 
 pub fn min_cost_flow_scaled(
@@ -230,6 +262,10 @@ pub fn min_cost_flow_scaled(
 ) -> Result<McfSolution, McfError> {
     let mut opts = opts.clone();
     opts.use_scaling = Some(true);
+    if opts.deterministic {
+        opts.threads = 1;
+    }
+    initialize_thread_pool(&opts);
     scaling::solve_mcf_with_scaling(problem, &opts)
 }
 
@@ -384,6 +420,9 @@ impl IpmSummary {
         Self {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
+            cycle_scoring_ms: stats.cycle_times_ms.iter().sum(),
+            barrier_compute_ms: stats.barrier_times_ms.iter().sum(),
+            spanner_update_ms: stats.spanner_update_times_ms.iter().sum(),
             termination,
             oracle_mode: stats.oracle_mode,
             deterministic_mode_used: opts.deterministic,
