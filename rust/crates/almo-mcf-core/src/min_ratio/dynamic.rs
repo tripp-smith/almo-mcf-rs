@@ -1,5 +1,6 @@
 use crate::min_ratio::branching_tree_chain::{BranchingTreeChain, RebuildContext};
 use crate::min_ratio::hsfc::{HSFCUpdateResult, HiddenStableFlowChasing};
+use crate::min_ratio::oracle::{DynamicUpdateOracle, OracleError, SparseFlowDelta};
 use crate::min_ratio::{
     select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery, TreeError,
 };
@@ -134,6 +135,7 @@ pub struct TreeChainLevel {
     pub last_rebuild: usize,
     pub approx_factor: f64,
     pub needs_rebuild: bool,
+    pub rebuild_count: usize,
 }
 
 impl TreeChainLevel {
@@ -151,6 +153,7 @@ impl TreeChainLevel {
             last_rebuild: 0,
             approx_factor,
             needs_rebuild: false,
+            rebuild_count: 0,
         }
     }
 
@@ -226,6 +229,7 @@ impl TreeChainHierarchy {
             if level.needs_rebuild {
                 level.needs_rebuild = false;
                 level.last_rebuild = iter;
+                level.rebuild_count = level.rebuild_count.saturating_add(1);
             }
             if let Some(candidate) = candidate {
                 let score = candidate.ratio / (1.0 + level.approx_factor);
@@ -512,6 +516,22 @@ impl FullDynamicOracle {
         self.instability_exponent = exponent;
     }
 
+    pub fn instability_per_level(&self) -> Vec<f64> {
+        self.hierarchy
+            .levels
+            .iter()
+            .map(|level| level.instability_budget as f64)
+            .collect()
+    }
+
+    pub fn rebuild_counts(&self) -> Vec<usize> {
+        self.hierarchy
+            .levels
+            .iter()
+            .map(|level| level.rebuild_count)
+            .collect()
+    }
+
     fn record_updates(&mut self, gradients: &[f64], lengths: &[f64]) -> Vec<usize> {
         if self.last_gradients.is_empty()
             || self.last_lengths.is_empty()
@@ -700,6 +720,7 @@ impl FullDynamicOracle {
             if level.needs_rebuild {
                 level.needs_rebuild = false;
                 level.last_rebuild = iter;
+                level.rebuild_count = level.rebuild_count.saturating_add(1);
             }
             if let Some(candidate) = candidate {
                 candidates.push((candidate, level.approx_factor));
@@ -843,6 +864,164 @@ impl FullDynamicOracle {
             return None;
         }
         Some((numerator, denominator))
+    }
+}
+
+impl FullDynamicOracle {
+    fn update_edge_instability(
+        &mut self,
+        edge_idx: usize,
+        new_gradient: Option<f64>,
+        new_length: Option<f64>,
+    ) -> Result<(), OracleError> {
+        if edge_idx >= self.last_edge_count {
+            return Err(OracleError::InvalidEdge { edge_idx });
+        }
+        if self.last_gradients.len() != self.last_edge_count {
+            self.last_gradients.resize(self.last_edge_count, 0.0);
+        }
+        if self.last_lengths.len() != self.last_edge_count {
+            self.last_lengths.resize(self.last_edge_count, 1.0);
+        }
+
+        let prev_g = self.last_gradients[edge_idx];
+        let prev_l = self.last_lengths[edge_idx];
+        let mut instability = 0usize;
+
+        if let Some(g) = new_gradient {
+            if (g - prev_g).abs() > self.gradient_change {
+                instability = instability.saturating_add(1);
+                self.amortized.record_update();
+            }
+            self.last_gradients[edge_idx] = g;
+        }
+
+        if let Some(l) = new_length {
+            if prev_l > 0.0 && l > 0.0 {
+                let ratio = if l > prev_l { l / prev_l } else { prev_l / l };
+                if ratio > self.length_factor {
+                    instability = instability.saturating_add(1);
+                    self.amortized.record_update();
+                }
+            }
+            self.last_lengths[edge_idx] = l;
+        }
+
+        if instability > 0 {
+            self.hierarchy.record_instability(instability);
+        }
+        if let (Some(l), Some(g)) = (new_length, new_gradient) {
+            self.spanner.update_edge_values(edge_idx, l.abs(), g);
+        } else if let Some(l) = new_length {
+            let g = self.last_gradients[edge_idx];
+            self.spanner.update_edge_values(edge_idx, l.abs(), g);
+        } else if let Some(g) = new_gradient {
+            let l = self.last_lengths[edge_idx];
+            self.spanner.update_edge_values(edge_idx, l.abs(), g);
+        }
+        Ok(())
+    }
+
+    fn updates_trigger_rebuild(&self) -> bool {
+        self.hierarchy
+            .levels
+            .iter()
+            .any(|level| level.needs_rebuild)
+    }
+}
+
+impl DynamicUpdateOracle for FullDynamicOracle {
+    fn update_gradient(&mut self, edge_idx: usize, new_g: f64) -> Result<(), OracleError> {
+        self.update_edge_instability(edge_idx, Some(new_g), None)?;
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn update_length(&mut self, edge_idx: usize, new_ell: f64) -> Result<(), OracleError> {
+        self.update_edge_instability(edge_idx, None, Some(new_ell))?;
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn batch_update_gradient(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError> {
+        for &(edge_idx, new_g) in updates {
+            self.update_edge_instability(edge_idx, Some(new_g), None)?;
+        }
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn batch_update_lengths(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError> {
+        for &(edge_idx, new_ell) in updates {
+            self.update_edge_instability(edge_idx, None, Some(new_ell))?;
+        }
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn update_many(
+        &mut self,
+        g_updates: &[(usize, f64)],
+        ell_updates: &[(usize, f64)],
+    ) -> Result<(), OracleError> {
+        for &(edge_idx, new_g) in g_updates {
+            self.update_edge_instability(edge_idx, Some(new_g), None)?;
+        }
+        for &(edge_idx, new_ell) in ell_updates {
+            self.update_edge_instability(edge_idx, None, Some(new_ell))?;
+        }
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    fn notify_flow_change(&mut self, flow_delta: &SparseFlowDelta) -> Result<(), OracleError> {
+        if flow_delta.edge_deltas.is_empty() {
+            return Ok(());
+        }
+        let mut instability = 0.0_f64;
+        for &(edge_id, delta) in &flow_delta.edge_deltas {
+            if edge_id >= self.last_lengths.len() {
+                continue;
+            }
+            let length = self.last_lengths[edge_id].abs();
+            instability += delta.abs() * length;
+        }
+        if instability > 0.0 {
+            let bump = instability.ceil() as usize;
+            self.hierarchy.record_instability(bump);
+        }
+        if self.updates_trigger_rebuild() {
+            return Err(OracleError::RebuildRequired {
+                level: None,
+                reason: "flow instability budget exhausted".to_string(),
+            });
+        }
+        Ok(())
     }
 }
 

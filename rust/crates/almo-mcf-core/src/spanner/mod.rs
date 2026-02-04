@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
+use crate::spanner::dynamic::InstabilityTracker;
 use crate::trees::LowStretchTree;
 
 pub mod construction;
@@ -58,6 +59,7 @@ pub struct DynamicSpanner {
     edges: Vec<SpannerEdge>,
     adjacency: Vec<Vec<usize>>,
     embeddings: HashMap<usize, EmbeddingPath>,
+    instability: InstabilityTracker,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +252,7 @@ impl DynamicSpanner {
             edges: Vec::new(),
             adjacency: vec![Vec::new(); node_count],
             embeddings: HashMap::new(),
+            instability: InstabilityTracker::new(1, 0.0),
         }
     }
 
@@ -347,9 +350,34 @@ impl DynamicSpanner {
         if !edge.active {
             return false;
         }
+        if edge.length > 0.0 && length > 0.0 {
+            let ratio = if length > edge.length {
+                length / edge.length
+            } else {
+                edge.length / length
+            };
+            self.instability.record(0, ratio.ln().abs());
+        }
+        let gradient_delta = (gradient - edge.gradient).abs();
+        if gradient_delta > 0.0 {
+            self.instability
+                .record(0, gradient_delta * edge.length.abs().max(1.0));
+        }
         edge.length = length;
         edge.gradient = gradient;
         true
+    }
+
+    pub fn should_rebuild_level(&self, level: usize) -> bool {
+        self.instability.exceeds_threshold(level)
+    }
+
+    pub fn instability_per_level(&self) -> &[f64] {
+        self.instability.accumulated()
+    }
+
+    pub fn reset_instability_level(&mut self, level: usize) {
+        self.instability.reset_level(level);
     }
 
     pub fn apply_edge_update(

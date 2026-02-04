@@ -63,6 +63,7 @@ fn build_problem(
 #[allow(clippy::too_many_arguments)]
 fn build_options(
     strategy: Option<String>,
+    oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
@@ -140,6 +141,19 @@ fn build_options(
             }
         };
     }
+    if let Some(mode) = oracle_mode {
+        let normalized = mode.to_ascii_lowercase();
+        opts.oracle_mode = match normalized.as_str() {
+            "dynamic" => almo_mcf_core::OracleMode::Dynamic,
+            "fallback" => almo_mcf_core::OracleMode::Fallback,
+            "hybrid" => almo_mcf_core::OracleMode::Hybrid,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "oracle_mode must be 'dynamic', 'fallback', or 'hybrid'",
+                ))
+            }
+        };
+    }
     Ok(opts)
 }
 
@@ -208,6 +222,7 @@ fn min_cost_flow_edges(
     demand,
     *,
     strategy = None,
+    oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
@@ -231,6 +246,7 @@ fn min_cost_flow_edges_with_options(
     cost: PyReadonlyArray1<'_, i64>,
     demand: PyReadonlyArray1<'_, i64>,
     strategy: Option<String>,
+    oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
@@ -247,6 +263,7 @@ fn min_cost_flow_edges_with_options(
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
     let opts = build_options(
         strategy,
+        oracle_mode,
         rebuild_every,
         max_iters,
         tolerance,
@@ -287,6 +304,7 @@ fn min_cost_flow_edges_with_options(
     demand,
     *,
     strategy = None,
+    oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
@@ -308,6 +326,7 @@ fn min_cost_flow_edges_with_scaling(
     cost: PyReadonlyArray1<'_, i64>,
     demand: PyReadonlyArray1<'_, i64>,
     strategy: Option<String>,
+    oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
@@ -322,6 +341,7 @@ fn min_cost_flow_edges_with_scaling(
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
     let mut opts = build_options(
         strategy,
+        oracle_mode,
         rebuild_every,
         max_iters,
         tolerance,
@@ -363,6 +383,7 @@ fn min_cost_flow_edges_with_scaling(
     demand,
     *,
     strategy = None,
+    oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
@@ -386,6 +407,7 @@ fn run_ipm_edges(
     cost: PyReadonlyArray1<'_, i64>,
     demand: PyReadonlyArray1<'_, i64>,
     strategy: Option<String>,
+    oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
@@ -402,6 +424,7 @@ fn run_ipm_edges(
     let problem = build_problem(n, tail, head, lower, upper, cost, demand)?;
     let opts = build_options(
         strategy,
+        oracle_mode,
         rebuild_every,
         max_iters,
         tolerance,

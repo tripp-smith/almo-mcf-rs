@@ -7,6 +7,8 @@ pub mod hsfc;
 pub mod oracle;
 pub mod static_oracle;
 
+pub use oracle::{DynamicUpdateOracle, OracleError, SparseFlowDelta};
+
 #[derive(Debug, Clone, Copy)]
 pub struct OracleQuery<'a> {
     pub iter: usize,

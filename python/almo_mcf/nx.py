@@ -140,6 +140,7 @@ def min_cost_flow(
     force_cost_scaling: bool | None = None,
     disable_capacity_scaling: bool | None = None,
     strategy: str | None = None,
+    oracle_mode: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
     tolerance: float | None = None,
@@ -156,6 +157,7 @@ def min_cost_flow(
         G: NetworkX DiGraph with demand and capacity attributes.
         use_ipm: Force enabling or disabling the IPM solver path.
         strategy: Optional solver strategy ("full_dynamic" or "periodic_rebuild").
+        oracle_mode: Optional oracle mode ("dynamic", "fallback", or "hybrid").
         rebuild_every: Rebuild cadence for periodic rebuild strategy.
         max_iters: Maximum IPM iterations.
         tolerance: Convergence tolerance.
@@ -189,6 +191,7 @@ def min_cost_flow(
             np.asarray(cost, dtype=np.int64),
             np.asarray(demand, dtype=np.int64),
             strategy=strategy,
+            oracle_mode=oracle_mode,
             rebuild_every=rebuild_every,
             max_iters=max_iters,
             tolerance=tolerance,
@@ -210,6 +213,7 @@ def min_cost_flow(
             np.asarray(cost, dtype=np.int64),
             np.asarray(demand, dtype=np.int64),
             strategy=strategy,
+            oracle_mode=oracle_mode,
             rebuild_every=rebuild_every,
             max_iters=max_iters,
             tolerance=tolerance,
