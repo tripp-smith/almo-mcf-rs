@@ -66,6 +66,8 @@ fn build_options(
     oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
+    gap_exponent: Option<f64>,
+    gap_threshold: Option<f64>,
     tolerance: Option<f64>,
     numerical_clamp_log: Option<f64>,
     residual_min: Option<f64>,
@@ -88,6 +90,22 @@ fn build_options(
     let mut opts = McfOptions::default();
     if let Some(value) = max_iters {
         opts.max_iters = value;
+    }
+    if let Some(value) = gap_exponent {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "gap_exponent must be positive",
+            ));
+        }
+        opts.gap_exponent = value;
+    }
+    if let Some(value) = gap_threshold {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "gap_tolerance must be positive",
+            ));
+        }
+        opts.gap_threshold = Some(value);
     }
     if let Some(value) = tolerance {
         opts.tolerance = value;
@@ -258,9 +276,30 @@ fn stats_to_dict(
     dict.set_item("iterations", iterations)?;
     dict.set_item("final_gap", final_gap)?;
     if let Some(summary) = summary {
+        let termination_reason = if summary.terminated_by_gap {
+            "gap_threshold"
+        } else if summary.terminated_by_max_iters {
+            "max_iterations"
+        } else if matches!(solver_mode, SolverMode::ClassicFallback) {
+            "non_convergence_fallback"
+        } else {
+            "other"
+        };
         dict.set_item("cycle_scoring_ms", summary.cycle_scoring_ms)?;
         dict.set_item("barrier_compute_ms", summary.barrier_compute_ms)?;
         dict.set_item("spanner_update_ms", summary.spanner_update_ms)?;
+        dict.set_item("last_duality_gap_proxy", summary.last_duality_gap_proxy)?;
+        dict.set_item(
+            "termination_gap_threshold",
+            summary.termination_gap_threshold,
+        )?;
+        dict.set_item("terminated_by_gap", summary.terminated_by_gap)?;
+        dict.set_item("terminated_by_max_iters", summary.terminated_by_max_iters)?;
+        dict.set_item("final_gap_estimate", summary.final_gap_estimate)?;
+        dict.set_item("gap_exponent_used", summary.gap_exponent_used)?;
+        dict.set_item("gap_tolerance_used", summary.gap_tolerance_used)?;
+        dict.set_item("final_gap_proxy", summary.final_gap_estimate)?;
+        dict.set_item("termination_reason", termination_reason)?;
         dict.set_item("rounding_performed", summary.rounding_performed)?;
         dict.set_item("rounding_success", summary.rounding_success)?;
         dict.set_item("final_integer_cost", summary.final_integer_cost)?;
@@ -314,6 +353,8 @@ fn min_cost_flow_edges(
     oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
+    gap_exponent = None,
+    gap_tolerance = None,
     tolerance = None,
     numerical_clamp_log = None,
     residual_min = None,
@@ -346,6 +387,8 @@ fn min_cost_flow_edges_with_options(
     oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
+    gap_exponent: Option<f64>,
+    gap_tolerance: Option<f64>,
     tolerance: Option<f64>,
     numerical_clamp_log: Option<f64>,
     residual_min: Option<f64>,
@@ -371,6 +414,8 @@ fn min_cost_flow_edges_with_options(
         oracle_mode,
         rebuild_every,
         max_iters,
+        gap_exponent,
+        gap_tolerance,
         tolerance,
         numerical_clamp_log,
         residual_min,
@@ -414,6 +459,8 @@ fn min_cost_flow_edges_with_options(
     oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
+    gap_exponent = None,
+    gap_tolerance = None,
     tolerance = None,
     numerical_clamp_log = None,
     residual_min = None,
@@ -444,6 +491,8 @@ fn min_cost_flow_edges_with_scaling(
     oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
+    gap_exponent: Option<f64>,
+    gap_tolerance: Option<f64>,
     tolerance: Option<f64>,
     numerical_clamp_log: Option<f64>,
     residual_min: Option<f64>,
@@ -467,6 +516,8 @@ fn min_cost_flow_edges_with_scaling(
         oracle_mode,
         rebuild_every,
         max_iters,
+        gap_exponent,
+        gap_tolerance,
         tolerance,
         numerical_clamp_log,
         residual_min,
@@ -511,6 +562,8 @@ fn min_cost_flow_edges_with_scaling(
     oracle_mode = None,
     rebuild_every = None,
     max_iters = None,
+    gap_exponent = None,
+    gap_tolerance = None,
     tolerance = None,
     numerical_clamp_log = None,
     residual_min = None,
@@ -543,6 +596,8 @@ fn run_ipm_edges(
     oracle_mode: Option<String>,
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
+    gap_exponent: Option<f64>,
+    gap_tolerance: Option<f64>,
     tolerance: Option<f64>,
     numerical_clamp_log: Option<f64>,
     residual_min: Option<f64>,
@@ -568,6 +623,8 @@ fn run_ipm_edges(
         oracle_mode,
         rebuild_every,
         max_iters,
+        gap_exponent,
+        gap_tolerance,
         tolerance,
         numerical_clamp_log,
         residual_min,
@@ -597,6 +654,13 @@ fn run_ipm_edges(
     let summary = almo_mcf_core::IpmSummary {
         iterations: ipm_result.stats.iterations,
         final_gap: ipm_result.stats.last_gap,
+        last_duality_gap_proxy: ipm_result.stats.last_duality_gap_proxy,
+        termination_gap_threshold: ipm_result.stats.termination_gap_threshold,
+        terminated_by_gap: ipm_result.stats.terminated_by_gap,
+        terminated_by_max_iters: ipm_result.stats.terminated_by_max_iters,
+        final_gap_estimate: ipm_result.stats.final_gap_estimate,
+        gap_exponent_used: opts.gap_exponent,
+        gap_tolerance_used: opts.gap_threshold,
         cycle_scoring_ms: ipm_result.stats.cycle_times_ms.iter().sum(),
         barrier_compute_ms: ipm_result.stats.barrier_times_ms.iter().sum(),
         spanner_update_ms: ipm_result.stats.spanner_update_times_ms.iter().sum(),

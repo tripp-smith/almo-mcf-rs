@@ -8,8 +8,13 @@ use std::time::Instant;
 
 mod potential;
 mod search;
+mod termination;
 
 pub use potential::{Potential, Residuals};
+pub use termination::{
+    compute_gap_threshold, estimate_duality_gap, should_terminate, DEFAULT_GAP_EXPONENT,
+    DEFAULT_GAP_THRESHOLD_FACTOR,
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct IpmState {
@@ -23,6 +28,11 @@ pub struct IpmStats {
     pub last_step_size: f64,
     pub potentials: Vec<f64>,
     pub last_gap: f64,
+    pub last_duality_gap_proxy: Option<f64>,
+    pub termination_gap_threshold: Option<f64>,
+    pub terminated_by_gap: bool,
+    pub terminated_by_max_iters: bool,
+    pub final_gap_estimate: Option<f64>,
     pub oracle_mode: OracleMode,
     pub cycle_times_ms: Vec<f64>,
     pub barrier_times_ms: Vec<f64>,
@@ -216,6 +226,11 @@ pub(crate) fn run_ipm_with_lower_bound(
         last_step_size: 0.0,
         potentials: Vec::new(),
         last_gap: f64::INFINITY,
+        last_duality_gap_proxy: None,
+        termination_gap_threshold: None,
+        terminated_by_gap: false,
+        terminated_by_max_iters: false,
+        final_gap_estimate: None,
         oracle_mode: opts.oracle_mode,
         cycle_times_ms: Vec::new(),
         barrier_times_ms: Vec::new(),
@@ -231,8 +246,14 @@ pub(crate) fn run_ipm_with_lower_bound(
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
     let mut stall_iters = 0usize;
     let mut last_kappa: Option<f64> = None;
+    let mut last_oracle_ratio: Option<f64> = None;
     let dynamic_loss_threshold = (problem.edge_count().max(1) as f64).powf(0.1).ceil() as usize;
     let update_eps = opts.tolerance.max(1e-12);
+    let max_u = upper
+        .iter()
+        .copied()
+        .fold(1.0_f64, |acc, value| acc.max(value.abs()).max(1.0));
+    let edge_count = problem.edge_count().max(1);
 
     for iter in 0..opts.max_iters {
         if let Some(limit) = opts.time_limit_ms {
@@ -260,6 +281,28 @@ pub(crate) fn run_ipm_with_lower_bound(
             potential.value_with_residuals_and_stats(&cost, &flow, &residuals, None);
         stats.potentials.push(current_potential);
         stats.last_gap = potential.duality_gap(&cost, &flow, &residuals);
+        let mut gap_estimate = termination::estimate_duality_gap_with_config(
+            &flow,
+            &cost,
+            &residuals,
+            potential.alpha,
+            edge_count,
+            max_u,
+            &potential.clamp_config,
+        );
+        if let Some(ratio) = last_oracle_ratio {
+            gap_estimate = gap_estimate.max((-ratio).max(0.0));
+        }
+        stats.last_duality_gap_proxy = Some(gap_estimate);
+        stats.termination_gap_threshold =
+            Some(termination::compute_gap_threshold(edge_count, max_u, opts));
+        if termination::should_terminate(gap_estimate, edge_count, max_u, opts) {
+            termination = IpmTermination::Converged;
+            stats.iterations = iter;
+            stats.terminated_by_gap = true;
+            stats.final_gap_estimate = Some(gap_estimate);
+            break;
+        }
         if matches!(opts.oracle_mode, OracleMode::Hybrid) && !using_fallback {
             if let (Some(prev), Some(kappa)) =
                 (stats.potentials.iter().rev().nth(1).copied(), last_kappa)
@@ -282,11 +325,19 @@ pub(crate) fn run_ipm_with_lower_bound(
         if current_potential <= termination_target {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
+            if iter + 1 >= opts.max_iters {
+                termination = IpmTermination::IterationLimit;
+                stats.terminated_by_max_iters = true;
+            }
             break;
         }
         if stats.last_gap < opts.tolerance {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
+            if iter + 1 >= opts.max_iters {
+                termination = IpmTermination::IterationLimit;
+                stats.terminated_by_max_iters = true;
+            }
             break;
         }
 
@@ -334,14 +385,24 @@ pub(crate) fn run_ipm_with_lower_bound(
             .cycle_times_ms
             .push(cycle_start.elapsed().as_secs_f64() * 1000.0);
         let Some(best) = best else {
-            termination = IpmTermination::NoImprovingCycle;
+            if iter + 1 >= opts.max_iters {
+                termination = IpmTermination::IterationLimit;
+                stats.terminated_by_max_iters = true;
+            } else {
+                termination = IpmTermination::NoImprovingCycle;
+            }
             stats.iterations = iter;
             break;
         };
+        last_oracle_ratio = Some(best.ratio);
 
         if best.ratio >= -opts.tolerance {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
+            if iter + 1 >= opts.max_iters {
+                termination = IpmTermination::IterationLimit;
+                stats.terminated_by_max_iters = true;
+            }
             break;
         }
 
@@ -367,6 +428,10 @@ pub(crate) fn run_ipm_with_lower_bound(
         if kappa < potential.kappa_floor() {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
+            if iter + 1 >= opts.max_iters {
+                termination = IpmTermination::IterationLimit;
+                stats.terminated_by_max_iters = true;
+            }
             break;
         }
 
@@ -458,17 +523,29 @@ pub(crate) fn run_ipm_with_lower_bound(
             } else {
                 IpmTermination::NoImprovingCycle
             };
+            if iter + 1 >= opts.max_iters {
+                stats.terminated_by_max_iters = true;
+            }
             stats.iterations = iter;
             break;
         }
 
         stats.iterations = iter + 1;
+        if iter + 1 >= opts.max_iters {
+            termination = IpmTermination::IterationLimit;
+            stats.terminated_by_max_iters = true;
+            stats.final_gap_estimate = Some(gap_estimate);
+            break;
+        }
     }
 
     let (_final_gradient, _, final_residuals, clamp_stats) =
         compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
     stats.barrier_clamp_stats.push(clamp_stats);
     stats.last_gap = potential.duality_gap(&cost, &flow, &final_residuals);
+    if stats.final_gap_estimate.is_none() {
+        stats.final_gap_estimate = stats.last_duality_gap_proxy;
+    }
 
     Ok(IpmResult {
         flow,

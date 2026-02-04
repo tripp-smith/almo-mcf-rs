@@ -143,6 +143,9 @@ def min_cost_flow(
     oracle_mode: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
+    max_iterations: int | None = None,
+    gap_exponent: float | None = None,
+    gap_tolerance: float | None = None,
     tolerance: float | None = None,
     numerical_clamp_log: float | None = None,
     residual_min: float | None = None,
@@ -168,6 +171,9 @@ def min_cost_flow(
         oracle_mode: Optional oracle mode ("dynamic", "fallback", or "hybrid").
         rebuild_every: Rebuild cadence for periodic rebuild strategy.
         max_iters: Maximum IPM iterations.
+        max_iterations: Alias for max_iters (preferred in the public API).
+        gap_exponent: Exponent for the (mU)^(-gap_exponent) termination threshold.
+        gap_tolerance: Explicit gap threshold; overrides the automatic (mU)^(-gap_exponent).
         tolerance: Convergence tolerance.
         numerical_clamp_log: Max exponent magnitude before clamping (default ~700).
         residual_min: Minimum residual slack treated as positive for barriers.
@@ -188,8 +194,16 @@ def min_cost_flow(
             Defaults to auto-detect based on U/C bounds.
         force_cost_scaling: When True, always apply the cost scaling phase.
         disable_capacity_scaling: When True, skip the capacity scaling phase.
+
+    Example:
+        Tighten termination for large instances:
+        >>> flow, stats = min_cost_flow(G, gap_exponent=12.0, return_stats=True)
+        Loosen termination for quick rounding:
+        >>> flow, stats = min_cost_flow(G, gap_tolerance=1e-6, return_stats=True)
     """
     core = _load_core()
+    if max_iters is None and max_iterations is not None:
+        max_iters = max_iterations
     tails, heads, lower, upper, cost, demand, index, edges = _graph_to_arrays(G)
     lower, upper, cost, demand, capacity_scale = _scale_problem(lower, upper, cost, demand)
     use_scaling = _should_use_scaling(lower, upper, cost, demand, use_scaling)
@@ -210,6 +224,8 @@ def min_cost_flow(
             oracle_mode=oracle_mode,
             rebuild_every=rebuild_every,
             max_iters=max_iters,
+            gap_exponent=gap_exponent,
+            gap_tolerance=gap_tolerance,
             tolerance=tolerance,
             numerical_clamp_log=numerical_clamp_log,
             residual_min=residual_min,
@@ -240,6 +256,8 @@ def min_cost_flow(
             oracle_mode=oracle_mode,
             rebuild_every=rebuild_every,
             max_iters=max_iters,
+            gap_exponent=gap_exponent,
+            gap_tolerance=gap_tolerance,
             tolerance=tolerance,
             numerical_clamp_log=numerical_clamp_log,
             residual_min=residual_min,
@@ -295,6 +313,9 @@ def min_cost_flow_scaled(
     strategy: str | None = None,
     rebuild_every: int | None = None,
     max_iters: int | None = None,
+    max_iterations: int | None = None,
+    gap_exponent: float | None = None,
+    gap_tolerance: float | None = None,
     tolerance: float | None = None,
     numerical_clamp_log: float | None = None,
     residual_min: float | None = None,
@@ -321,6 +342,9 @@ def min_cost_flow_scaled(
         strategy=strategy,
         rebuild_every=rebuild_every,
         max_iters=max_iters,
+        max_iterations=max_iterations,
+        gap_exponent=gap_exponent,
+        gap_tolerance=gap_tolerance,
         tolerance=tolerance,
         numerical_clamp_log=numerical_clamp_log,
         residual_min=residual_min,
