@@ -1,5 +1,6 @@
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
+use crate::min_ratio::oracle::{DynamicUpdateOracle, SparseFlowDelta};
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
 use crate::{McfError, McfOptions, McfProblem, OracleMode, Strategy};
 use std::time::Instant;
@@ -22,6 +23,11 @@ pub struct IpmStats {
     pub potentials: Vec<f64>,
     pub last_gap: f64,
     pub oracle_mode: OracleMode,
+    pub update_times_ms: Vec<f64>,
+    pub instability_per_level: Vec<f64>,
+    pub rebuild_counts: Vec<usize>,
+    pub oracle_update_count: usize,
+    pub oracle_fallback_count: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,12 +179,18 @@ pub(crate) fn run_ipm_with_lower_bound(
         potentials: Vec::new(),
         last_gap: f64::INFINITY,
         oracle_mode: opts.oracle_mode,
+        update_times_ms: Vec::new(),
+        instability_per_level: Vec::new(),
+        rebuild_counts: Vec::new(),
+        oracle_update_count: 0,
+        oracle_fallback_count: 0,
     };
     let mut termination = IpmTermination::IterationLimit;
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
     let mut stall_iters = 0usize;
     let mut last_kappa: Option<f64> = None;
     let dynamic_loss_threshold = (problem.edge_count().max(1) as f64).powf(0.1).ceil() as usize;
+    let update_eps = opts.tolerance.max(1e-12);
 
     for iter in 0..opts.max_iters {
         if let Some(limit) = opts.time_limit_ms {
@@ -318,6 +330,63 @@ pub(crate) fn run_ipm_with_lower_bound(
         }) {
             flow = candidate_flow;
             stats.last_step_size = step;
+            if let Some(oracle) = dynamic_oracle.as_mut() {
+                let flow_updates: Vec<(usize, f64)> = delta
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(edge_id, &dir)| {
+                        let change = dir * step;
+                        if change.abs() > update_eps {
+                            Some((edge_id, change))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !flow_updates.is_empty() {
+                    let flow_delta = SparseFlowDelta::new(flow_updates);
+                    if let Err(err) = oracle.notify_flow_change(&flow_delta) {
+                        if matches!(opts.oracle_mode, OracleMode::Hybrid) {
+                            using_fallback = true;
+                            stats.oracle_fallback_count =
+                                stats.oracle_fallback_count.saturating_add(1);
+                            eprintln!("warning: dynamic oracle requested rebuild ({err})");
+                        }
+                    }
+                }
+
+                let (new_gradient, new_lengths, _) =
+                    compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+                let mut g_updates = Vec::new();
+                let mut ell_updates = Vec::new();
+                for (edge_id, (&g_new, &l_new)) in
+                    new_gradient.iter().zip(new_lengths.iter()).enumerate()
+                {
+                    if (g_new - gradient[edge_id]).abs() > update_eps {
+                        g_updates.push((edge_id, g_new));
+                    }
+                    if (l_new - lengths[edge_id]).abs() > update_eps {
+                        ell_updates.push((edge_id, l_new));
+                    }
+                }
+                if !g_updates.is_empty() || !ell_updates.is_empty() {
+                    let update_start = Instant::now();
+                    let update_result = oracle.update_many(&g_updates, &ell_updates);
+                    let elapsed = update_start.elapsed().as_secs_f64() * 1000.0;
+                    stats.update_times_ms.push(elapsed);
+                    stats.oracle_update_count = stats.oracle_update_count.saturating_add(1);
+                    stats.instability_per_level = oracle.instability_per_level();
+                    stats.rebuild_counts = oracle.rebuild_counts();
+                    if let Err(err) = update_result {
+                        if matches!(opts.oracle_mode, OracleMode::Hybrid) {
+                            using_fallback = true;
+                            stats.oracle_fallback_count =
+                                stats.oracle_fallback_count.saturating_add(1);
+                            eprintln!("warning: dynamic oracle requested rebuild ({err})");
+                        }
+                    }
+                }
+            }
         } else {
             termination = if iter + 1 >= opts.max_iters {
                 IpmTermination::IterationLimit

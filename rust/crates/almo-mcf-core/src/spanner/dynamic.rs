@@ -7,6 +7,77 @@ use crate::spanner::construction::{LevelEdge, Spanner};
 use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
 use crate::trees::{LowStretchTree, TreeBuildMode};
 
+#[derive(Debug, Clone)]
+pub struct InstabilityTracker {
+    thresholds: Vec<f64>,
+    accumulated: Vec<f64>,
+}
+
+impl InstabilityTracker {
+    pub fn new(levels: usize, threshold: f64) -> Self {
+        let count = levels.max(1);
+        Self {
+            thresholds: vec![threshold.max(0.0); count],
+            accumulated: vec![0.0; count],
+        }
+    }
+
+    pub fn record(&mut self, level: usize, amount: f64) {
+        if level >= self.accumulated.len() {
+            return;
+        }
+        self.accumulated[level] += amount;
+    }
+
+    pub fn exceeds_threshold(&self, level: usize) -> bool {
+        self.accumulated.get(level).copied().unwrap_or(0.0)
+            >= self.thresholds.get(level).copied().unwrap_or(f64::INFINITY)
+    }
+
+    pub fn set_threshold(&mut self, level: usize, threshold: f64) {
+        if level >= self.thresholds.len() {
+            return;
+        }
+        self.thresholds[level] = threshold.max(0.0);
+    }
+
+    pub fn should_rebuild_level(&self, level: usize, policy: &RebuildPolicy, iter: usize) -> bool {
+        match policy {
+            RebuildPolicy::Periodic { every } => *every > 0 && iter.is_multiple_of(*every),
+            RebuildPolicy::Instability { threshold } => {
+                self.accumulated.get(level).copied().unwrap_or(0.0) >= *threshold
+            }
+            RebuildPolicy::Hybrid { every, threshold } => {
+                (*every > 0 && iter.is_multiple_of(*every))
+                    || self.accumulated.get(level).copied().unwrap_or(0.0) >= *threshold
+            }
+        }
+    }
+
+    pub fn reset_level(&mut self, level: usize) {
+        if level < self.accumulated.len() {
+            self.accumulated[level] = 0.0;
+        }
+    }
+
+    pub fn accumulated(&self) -> &[f64] {
+        &self.accumulated
+    }
+}
+
+impl Default for InstabilityTracker {
+    fn default() -> Self {
+        Self::new(1, 0.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RebuildPolicy {
+    Periodic { every: usize },
+    Instability { threshold: f64 },
+    Hybrid { every: usize, threshold: f64 },
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SpannerUpdates {
     pub changed_edges: usize,

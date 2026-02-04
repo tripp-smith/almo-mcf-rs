@@ -4,6 +4,61 @@ use crate::min_ratio::{
 use crate::spanner::DynamicSpanner;
 use crate::trees::dynamic::{DynamicTreeChain, DynamicTreeChainConfig};
 use crate::trees::TreeBuildMode;
+use std::fmt;
+
+#[derive(Debug, Clone)]
+pub struct SparseFlowDelta {
+    pub edge_deltas: Vec<(usize, f64)>,
+}
+
+impl SparseFlowDelta {
+    pub fn new(edge_deltas: Vec<(usize, f64)>) -> Self {
+        Self { edge_deltas }
+    }
+
+    pub fn total_abs_flow(&self) -> f64 {
+        self.edge_deltas.iter().map(|(_, delta)| delta.abs()).sum()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum OracleError {
+    RebuildRequired {
+        level: Option<usize>,
+        reason: String,
+    },
+    InvalidEdge {
+        edge_idx: usize,
+    },
+    Other(String),
+}
+
+impl fmt::Display for OracleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OracleError::RebuildRequired { level, reason } => {
+                write!(f, "rebuild required at {level:?}: {reason}")
+            }
+            OracleError::InvalidEdge { edge_idx } => {
+                write!(f, "invalid edge index {edge_idx}")
+            }
+            OracleError::Other(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+pub trait DynamicUpdateOracle {
+    fn update_gradient(&mut self, edge_idx: usize, new_g: f64) -> Result<(), OracleError>;
+    fn update_length(&mut self, edge_idx: usize, new_ell: f64) -> Result<(), OracleError>;
+    fn batch_update_gradient(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError>;
+    fn batch_update_lengths(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError>;
+    fn update_many(
+        &mut self,
+        g_updates: &[(usize, f64)],
+        ell_updates: &[(usize, f64)],
+    ) -> Result<(), OracleError>;
+    fn notify_flow_change(&mut self, flow_delta: &SparseFlowDelta) -> Result<(), OracleError>;
+}
 
 #[derive(Debug, Clone)]
 pub struct DynamicOracle {
@@ -15,6 +70,7 @@ pub struct DynamicOracle {
     pub spanner_degree: usize,
     last_node_count: usize,
     last_edge_count: usize,
+    last_gradients: Vec<f64>,
     last_lengths: Vec<f64>,
 }
 
@@ -40,6 +96,7 @@ impl DynamicOracle {
             spanner_degree: 4,
             last_node_count: 0,
             last_edge_count: 0,
+            last_gradients: Vec::new(),
             last_lengths: Vec::new(),
         }
     }
@@ -77,6 +134,7 @@ impl DynamicOracle {
         );
         self.last_node_count = node_count;
         self.last_edge_count = query.tails.len();
+        self.last_gradients = query.gradients.to_vec();
         self.last_lengths = query.lengths.to_vec();
         Ok(())
     }
@@ -111,6 +169,62 @@ impl DynamicOracle {
             query.lengths,
         );
         Ok(best)
+    }
+}
+
+impl DynamicUpdateOracle for DynamicOracle {
+    fn update_gradient(&mut self, edge_idx: usize, new_g: f64) -> Result<(), OracleError> {
+        if edge_idx >= self.last_edge_count {
+            return Err(OracleError::InvalidEdge { edge_idx });
+        }
+        if self.last_gradients.len() != self.last_edge_count {
+            self.last_gradients.resize(self.last_edge_count, 0.0);
+        }
+        if let Some(gradient) = self.last_gradients.get_mut(edge_idx) {
+            *gradient = new_g;
+        }
+        Ok(())
+    }
+
+    fn update_length(&mut self, edge_idx: usize, new_ell: f64) -> Result<(), OracleError> {
+        if edge_idx >= self.last_edge_count {
+            return Err(OracleError::InvalidEdge { edge_idx });
+        }
+        if self.last_lengths.len() != self.last_edge_count {
+            self.last_lengths.resize(self.last_edge_count, 0.0);
+        }
+        if let Some(length) = self.last_lengths.get_mut(edge_idx) {
+            *length = new_ell;
+        }
+        Ok(())
+    }
+
+    fn batch_update_gradient(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError> {
+        for &(edge_idx, new_g) in updates {
+            self.update_gradient(edge_idx, new_g)?;
+        }
+        Ok(())
+    }
+
+    fn batch_update_lengths(&mut self, updates: &[(usize, f64)]) -> Result<(), OracleError> {
+        for &(edge_idx, new_ell) in updates {
+            self.update_length(edge_idx, new_ell)?;
+        }
+        Ok(())
+    }
+
+    fn update_many(
+        &mut self,
+        g_updates: &[(usize, f64)],
+        ell_updates: &[(usize, f64)],
+    ) -> Result<(), OracleError> {
+        self.batch_update_gradient(g_updates)?;
+        self.batch_update_lengths(ell_updates)?;
+        Ok(())
+    }
+
+    fn notify_flow_change(&mut self, _flow_delta: &SparseFlowDelta) -> Result<(), OracleError> {
+        Ok(())
     }
 }
 
