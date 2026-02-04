@@ -4,6 +4,7 @@ use rayon::prelude::*;
 pub mod branching_tree_chain;
 pub mod dynamic;
 pub mod hsfc;
+pub mod oracle;
 pub mod static_oracle;
 
 #[derive(Debug, Clone, Copy)]

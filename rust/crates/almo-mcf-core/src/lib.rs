@@ -37,6 +37,7 @@ pub struct IpmSummary {
     pub iterations: usize,
     pub final_gap: f64,
     pub termination: IpmTermination,
+    pub oracle_mode: OracleMode,
 }
 
 #[derive(Debug, Clone)]
@@ -45,10 +46,11 @@ pub enum Strategy {
     PeriodicRebuild { rebuild_every: usize },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum OracleMode {
     Dynamic,
     Fallback,
+    #[default]
     Hybrid,
 }
 
@@ -362,6 +364,7 @@ impl IpmSummary {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
             termination,
+            oracle_mode: stats.oracle_mode,
         }
     }
 }

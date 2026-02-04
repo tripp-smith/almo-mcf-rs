@@ -21,6 +21,7 @@ pub struct IpmStats {
     pub last_step_size: f64,
     pub potentials: Vec<f64>,
     pub last_gap: f64,
+    pub oracle_mode: OracleMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,6 +172,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         last_step_size: 0.0,
         potentials: Vec::new(),
         last_gap: f64::INFINITY,
+        oracle_mode: opts.oracle_mode,
     };
     let mut termination = IpmTermination::IterationLimit;
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
