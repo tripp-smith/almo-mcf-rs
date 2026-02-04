@@ -46,17 +46,12 @@ pub enum Strategy {
     PeriodicRebuild { rebuild_every: usize },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum OracleMode {
     Dynamic,
     Fallback,
+    #[default]
     Hybrid,
-}
-
-impl Default for OracleMode {
-    fn default() -> Self {
-        OracleMode::Hybrid
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
