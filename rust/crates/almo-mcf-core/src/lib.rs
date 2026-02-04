@@ -39,6 +39,13 @@ pub struct McfSolution {
 pub struct IpmSummary {
     pub iterations: usize,
     pub final_gap: f64,
+    pub last_duality_gap_proxy: Option<f64>,
+    pub termination_gap_threshold: Option<f64>,
+    pub terminated_by_gap: bool,
+    pub terminated_by_max_iters: bool,
+    pub final_gap_estimate: Option<f64>,
+    pub gap_exponent_used: f64,
+    pub gap_tolerance_used: Option<f64>,
     pub cycle_scoring_ms: f64,
     pub barrier_compute_ms: f64,
     pub spanner_update_ms: f64,
@@ -86,6 +93,8 @@ pub struct McfOptions {
     pub time_limit_ms: Option<u64>,
     pub tolerance: f64,
     pub max_iters: usize,
+    pub gap_exponent: f64,
+    pub gap_threshold: Option<f64>,
     pub strategy: Strategy,
     pub oracle_mode: OracleMode,
     pub threads: usize,
@@ -116,6 +125,8 @@ impl Default for McfOptions {
             time_limit_ms: None,
             tolerance: 1e-9,
             max_iters: 10_000,
+            gap_exponent: ipm::DEFAULT_GAP_EXPONENT,
+            gap_threshold: None,
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
             oracle_mode: OracleMode::Hybrid,
             threads: 1,
@@ -354,15 +365,14 @@ fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
     log_u > poly_log_m || log_c > poly_log_m || max_capacity > bound || max_cost > bound
 }
 
-fn rounding_gap_threshold(problem: &McfProblem) -> f64 {
-    let edge_count = problem.edge_count().max(1) as f64;
+fn rounding_gap_threshold(problem: &McfProblem, opts: &McfOptions) -> f64 {
+    let edge_count = problem.edge_count().max(1);
     let max_upper = problem
         .upper
         .iter()
         .map(|&value| value.abs() as f64)
         .fold(1.0_f64, |acc, value| acc.max(value).max(1.0));
-    let m_u = (edge_count * max_upper).max(1.0);
-    m_u.powf(-10.0)
+    ipm::compute_gap_threshold(edge_count, max_upper, opts)
 }
 
 fn solve_classic_with_mode(
@@ -455,6 +465,13 @@ impl IpmSummary {
         Self {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
+            last_duality_gap_proxy: stats.last_duality_gap_proxy,
+            termination_gap_threshold: stats.termination_gap_threshold,
+            terminated_by_gap: stats.terminated_by_gap,
+            terminated_by_max_iters: stats.terminated_by_max_iters,
+            final_gap_estimate: stats.final_gap_estimate,
+            gap_exponent_used: opts.gap_exponent,
+            gap_tolerance_used: opts.gap_threshold,
             cycle_scoring_ms: stats.cycle_times_ms.iter().sum(),
             barrier_compute_ms: stats.barrier_times_ms.iter().sum(),
             spanner_update_ms: stats.spanner_update_times_ms.iter().sum(),
@@ -492,7 +509,7 @@ pub(crate) fn finalize_ipm_solution(
         return Ok(solution);
     }
 
-    let gap_threshold = rounding_gap_threshold(problem);
+    let gap_threshold = rounding_gap_threshold(problem, opts);
     if ipm_result.stats.last_gap > gap_threshold {
         let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
         solution.ipm_stats = ipm_stats;
