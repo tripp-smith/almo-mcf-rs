@@ -1,4 +1,7 @@
-use almo_mcf_core::rounding::{build_residual_instance, round_fractional_flow};
+use almo_mcf_core::rounding::{
+    build_residual_graph_from_problem, build_residual_instance, cancel_negative_cycles_in_residual,
+    round_fractional_flow, round_to_integer_flow,
+};
 use almo_mcf_core::McfProblem;
 
 #[test]
@@ -36,4 +39,23 @@ fn residual_builder_returns_unit_caps() {
     let residual = build_residual_instance(&problem, &fractional).unwrap();
     assert_eq!(residual.capacity, vec![1]);
     assert_eq!(residual.edge_map, vec![0]);
+}
+
+#[test]
+fn cancels_negative_cycles_before_rounding() {
+    let problem = McfProblem::new(
+        vec![0, 1],
+        vec![1, 0],
+        vec![0, 0],
+        vec![2, 2],
+        vec![-1, 0],
+        vec![0, 0],
+    )
+    .unwrap();
+    let fractional = vec![0.5, 0.5];
+    let mut residual = build_residual_graph_from_problem(&problem, &fractional).unwrap();
+    let stats = cancel_negative_cycles_in_residual(&mut residual, Some(10)).unwrap();
+    assert!(stats.cycles_canceled >= 1);
+    let rounded = round_to_integer_flow(&residual.flow, &problem, &residual).unwrap();
+    assert_eq!(rounded.flow.len(), problem.edge_count());
 }
