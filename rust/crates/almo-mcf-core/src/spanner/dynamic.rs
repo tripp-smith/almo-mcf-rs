@@ -4,6 +4,8 @@ use std::collections::BinaryHeap;
 use crate::graph::{Edge, EdgeId, NodeId};
 use crate::spanner::construction::{build_level, contract_layer, greedy_cluster, sparsify_level};
 use crate::spanner::construction::{LevelEdge, Spanner};
+use crate::spanner::{DeterministicDynamicSpanner, DynamicSpanner, EmbeddingStep};
+use crate::trees::{LowStretchTree, TreeBuildMode};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SpannerUpdates {
@@ -221,5 +223,199 @@ fn ordered_pair(u: usize, v: usize) -> (usize, usize) {
         (u, v)
     } else {
         (v, u)
+    }
+}
+
+impl DynamicSpanner {
+    pub fn build_sparse_subgraph(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        gradients: &[f64],
+        max_extra_per_node: usize,
+        deterministic: bool,
+    ) -> Self {
+        let build_mode = if deterministic {
+            TreeBuildMode::Deterministic
+        } else {
+            TreeBuildMode::Randomized
+        };
+        let tree =
+            LowStretchTree::build_with_mode(node_count, tails, heads, lengths, build_mode, 0)
+                .unwrap_or_else(|_| {
+                    LowStretchTree::build(node_count, tails, heads, lengths, 0).unwrap()
+                });
+        let mut spanner = DynamicSpanner::new(node_count);
+        let mut edge_to_spanner = vec![None; tails.len()];
+        for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+            if tree.tree_edges.get(edge_id).copied().unwrap_or(false) {
+                let spanner_edge = spanner.insert_edge_with_values(
+                    tail as usize,
+                    head as usize,
+                    lengths[edge_id].abs(),
+                    gradients[edge_id],
+                );
+                edge_to_spanner[edge_id] = Some(spanner_edge);
+                spanner.set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+            }
+        }
+
+        let mut extras: Vec<(f64, usize)> = (0..tails.len())
+            .filter(|&edge_id| edge_to_spanner[edge_id].is_none())
+            .map(|edge_id| (lengths[edge_id].abs(), edge_id))
+            .collect();
+        extras.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut degree = vec![0usize; node_count];
+        for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+            if edge_to_spanner[edge_id].is_some() {
+                degree[tail as usize] += 1;
+                degree[head as usize] += 1;
+            }
+        }
+        for (_, edge_id) in extras {
+            let u = tails[edge_id] as usize;
+            let v = heads[edge_id] as usize;
+            if degree[u] >= max_extra_per_node && degree[v] >= max_extra_per_node {
+                continue;
+            }
+            let spanner_edge =
+                spanner.insert_edge_with_values(u, v, lengths[edge_id].abs(), gradients[edge_id]);
+            edge_to_spanner[edge_id] = Some(spanner_edge);
+            spanner.set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+            degree[u] += 1;
+            degree[v] += 1;
+        }
+
+        for edge_id in 0..tails.len() {
+            if edge_to_spanner[edge_id].is_some() {
+                continue;
+            }
+            let start = tails[edge_id] as usize;
+            let end = heads[edge_id] as usize;
+            if spanner.embed_edge_with_bfs(edge_id, start, end).is_none() {
+                let spanner_edge = spanner.insert_edge_with_values(
+                    start,
+                    end,
+                    lengths[edge_id].abs(),
+                    gradients[edge_id],
+                );
+                spanner.set_embedding(edge_id, vec![EmbeddingStep::new(spanner_edge, 1)]);
+            }
+        }
+
+        spanner
+    }
+
+    pub fn query_path(&self, start: usize, end: usize) -> Option<Vec<EmbeddingStep>> {
+        if start >= self.node_count || end >= self.node_count || start == end {
+            return None;
+        }
+        let mut visited = vec![false; self.node_count];
+        let mut parent: Vec<Option<(usize, usize)>> = vec![None; self.node_count];
+        let mut queue = std::collections::VecDeque::new();
+        visited[start] = true;
+        queue.push_back(start);
+        while let Some(node) = queue.pop_front() {
+            if node == end {
+                break;
+            }
+            let Some(adjacent) = self.adjacency.get(node) else {
+                continue;
+            };
+            for &edge_id in adjacent {
+                let Some(edge) = self.edges.get(edge_id) else {
+                    continue;
+                };
+                if !edge.active {
+                    continue;
+                }
+                let next = if edge.u == node {
+                    edge.v
+                } else if edge.v == node {
+                    edge.u
+                } else {
+                    continue;
+                };
+                if visited[next] {
+                    continue;
+                }
+                visited[next] = true;
+                parent[next] = Some((node, edge_id));
+                queue.push_back(next);
+            }
+        }
+        if !visited[end] {
+            return None;
+        }
+        let mut steps_rev: Vec<EmbeddingStep> = Vec::new();
+        let mut curr = end;
+        while curr != start {
+            let (prev, edge_id) = parent[curr]?;
+            let edge = self.edges.get(edge_id)?;
+            let dir = if edge.u == prev && edge.v == curr {
+                1
+            } else {
+                -1
+            };
+            steps_rev.push(EmbeddingStep::new(edge_id, dir));
+            curr = prev;
+        }
+        steps_rev.reverse();
+        Some(steps_rev)
+    }
+
+    pub fn get_spanner_edges(&self) -> Vec<(usize, usize)> {
+        self.edges
+            .iter()
+            .filter(|edge| edge.active)
+            .map(|edge| (edge.u, edge.v))
+            .collect()
+    }
+}
+
+impl DeterministicDynamicSpanner {
+    pub fn update_edge(&mut self, edge_id: usize, length: f64, gradient: f64) -> bool {
+        self.update_edge_values(edge_id, length, gradient)
+    }
+
+    pub fn query_path(&mut self, start: usize, end: usize) -> Option<Vec<EmbeddingStep>> {
+        self.spanner.query_path(start, end)
+    }
+
+    pub fn get_spanner_edges(&self) -> Vec<(usize, usize)> {
+        self.spanner.get_spanner_edges()
+    }
+
+    pub fn vertex_split_recursive(&mut self, vertex: usize, depth: usize) -> usize {
+        let new_vertex = self.spanner.split_vertex(vertex);
+        if depth > 0 {
+            self.pending_updates = self.pending_updates.saturating_add(1);
+            self.maintain();
+        }
+        new_vertex
+    }
+
+    pub fn sparsify_edges_with_embeddings(&mut self, max_edges: usize) {
+        if self.spanner.edge_count <= max_edges {
+            return;
+        }
+        let mut active_edges: Vec<usize> = self
+            .spanner
+            .edges
+            .iter()
+            .enumerate()
+            .filter_map(|(edge_id, edge)| edge.active.then_some(edge_id))
+            .collect();
+        active_edges.sort_unstable();
+        let excess = active_edges.len().saturating_sub(max_edges);
+        for edge_id in active_edges.into_iter().rev().take(excess) {
+            if let Some((u, v)) = self.spanner.edge_endpoints(edge_id) {
+                if let Some(path) = self.spanner.query_path(u, v) {
+                    self.spanner.set_embedding(edge_id, path);
+                }
+            }
+            self.spanner.delete_edge(edge_id);
+        }
     }
 }

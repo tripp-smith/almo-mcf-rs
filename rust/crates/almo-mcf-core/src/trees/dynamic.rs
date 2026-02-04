@@ -1,5 +1,135 @@
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 
+#[derive(Debug, Clone)]
+pub struct TreeChainLevel {
+    pub level: usize,
+    pub node_count: usize,
+    pub trees: Vec<LowStretchTree>,
+    pub node_map: Vec<usize>,
+    pub chains: Vec<Vec<usize>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicTreeChainConfig {
+    pub seed: u64,
+    pub max_levels: usize,
+    pub trees_per_level: usize,
+    pub build_mode: TreeBuildMode,
+}
+
+impl DynamicTreeChainConfig {
+    pub fn deterministic(max_levels: usize, trees_per_level: usize) -> Self {
+        Self {
+            seed: 0,
+            max_levels: max_levels.max(1),
+            trees_per_level: trees_per_level.max(1),
+            build_mode: TreeBuildMode::Deterministic,
+        }
+    }
+
+    pub fn randomized(seed: u64, max_levels: usize, trees_per_level: usize) -> Self {
+        Self {
+            seed,
+            max_levels: max_levels.max(1),
+            trees_per_level: trees_per_level.max(1),
+            build_mode: TreeBuildMode::Randomized,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicTreeChain {
+    pub base_node_count: usize,
+    pub levels: Vec<TreeChainLevel>,
+}
+
+impl DynamicTreeChain {
+    pub fn build(
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        config: DynamicTreeChainConfig,
+    ) -> Result<Self, TreeError> {
+        let mut levels = Vec::new();
+        let mut current_node_count = node_count.max(1);
+        let mut level_tails = tails.to_vec();
+        let mut level_heads = heads.to_vec();
+        let mut level_lengths = lengths.to_vec();
+        let max_levels = config.max_levels.max(1);
+        for level in 0..max_levels {
+            let mut trees = Vec::with_capacity(config.trees_per_level);
+            for tree_id in 0..config.trees_per_level {
+                let seed = config.seed ^ ((level as u64) << 32) ^ (tree_id as u64);
+                let tree = LowStretchTree::build_with_mode(
+                    current_node_count,
+                    &level_tails,
+                    &level_heads,
+                    &level_lengths,
+                    config.build_mode,
+                    seed,
+                )?;
+                trees.push(tree);
+            }
+            let node_map = build_node_map(current_node_count);
+            let chains = build_chains_from_tree(trees.first());
+            levels.push(TreeChainLevel {
+                level,
+                node_count: current_node_count,
+                trees,
+                node_map: node_map.clone(),
+                chains,
+            });
+            current_node_count = node_map.iter().copied().max().unwrap_or(0) + 1;
+            if current_node_count <= 1 {
+                break;
+            }
+            let (next_tails, next_heads, next_lengths) =
+                compress_edges_by_map(&node_map, &level_tails, &level_heads, &level_lengths);
+            level_tails = next_tails;
+            level_heads = next_heads;
+            level_lengths = next_lengths;
+        }
+        Ok(Self {
+            base_node_count: node_count,
+            levels,
+        })
+    }
+
+    pub fn rebuild_from_graph(
+        &mut self,
+        node_count: usize,
+        tails: &[u32],
+        heads: &[u32],
+        lengths: &[f64],
+        config: DynamicTreeChainConfig,
+    ) -> Result<(), TreeError> {
+        *self = Self::build(node_count, tails, heads, lengths, config)?;
+        Ok(())
+    }
+
+    pub fn level_count(&self) -> usize {
+        self.levels.len()
+    }
+
+    pub fn path_length(&self, level: usize, u: usize, v: usize) -> Option<f64> {
+        let level = self.levels.get(level)?;
+        level.trees.first()?.path_length(u, v)
+    }
+
+    pub fn embedding_path(
+        &self,
+        level: usize,
+        u: usize,
+        v: usize,
+        tails: &[u32],
+        heads: &[u32],
+    ) -> Option<Vec<(usize, i8)>> {
+        let level = self.levels.get(level)?;
+        level.trees.first()?.path_edges(u, v, tails, heads)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DynamicTreeConfig {
     pub seed: u64,
@@ -47,6 +177,61 @@ fn clamp_polynomial_length(node_count: usize, length: f64) -> f64 {
         max_length
     };
     length.clamp(min_length, max_length)
+}
+
+fn build_node_map(node_count: usize) -> Vec<usize> {
+    (0..node_count).map(|node| node / 2).collect()
+}
+
+fn compress_edges_by_map(
+    map: &[usize],
+    tails: &[u32],
+    heads: &[u32],
+    lengths: &[f64],
+) -> (Vec<u32>, Vec<u32>, Vec<f64>) {
+    let mut next_tails = Vec::with_capacity(tails.len());
+    let mut next_heads = Vec::with_capacity(heads.len());
+    let mut next_lengths = Vec::with_capacity(lengths.len());
+    for ((&tail, &head), &length) in tails.iter().zip(heads.iter()).zip(lengths.iter()) {
+        let mapped_tail = *map.get(tail as usize).unwrap_or(&0) as u32;
+        let mapped_head = *map.get(head as usize).unwrap_or(&0) as u32;
+        if mapped_tail == mapped_head {
+            continue;
+        }
+        next_tails.push(mapped_tail);
+        next_heads.push(mapped_head);
+        next_lengths.push(length);
+    }
+    (next_tails, next_heads, next_lengths)
+}
+
+fn build_chains_from_tree(tree: Option<&LowStretchTree>) -> Vec<Vec<usize>> {
+    let Some(tree) = tree else {
+        return Vec::new();
+    };
+    let node_count = tree.parent.len();
+    let mut visited = vec![false; node_count];
+    let mut chains = Vec::new();
+    for start in 0..node_count {
+        if visited[start] {
+            continue;
+        }
+        let mut chain = Vec::new();
+        let mut current = start;
+        while !visited[current] {
+            visited[current] = true;
+            chain.push(current);
+            let parent = tree.parent[current];
+            if parent == current {
+                break;
+            }
+            current = parent;
+        }
+        if !chain.is_empty() {
+            chains.push(chain);
+        }
+    }
+    chains
 }
 
 #[derive(Debug, Clone)]
@@ -299,5 +484,16 @@ mod tests {
         assert!((tree.lengths[0] - max_len).abs() < 1e-9);
         tree.update_length(0, 1e-12);
         assert!((tree.lengths[0] - min_len).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tree_chain_builds_levels() {
+        let tails = vec![0, 1, 2, 3];
+        let heads = vec![1, 2, 3, 0];
+        let lengths = vec![1.0, 2.0, 3.0, 4.0];
+        let config = DynamicTreeChainConfig::deterministic(3, 2);
+        let chain = DynamicTreeChain::build(4, &tails, &heads, &lengths, config).unwrap();
+        assert!(chain.level_count() >= 1);
+        assert_eq!(chain.levels[0].node_count, 4);
     }
 }

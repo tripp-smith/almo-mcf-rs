@@ -37,6 +37,7 @@ pub struct IpmSummary {
     pub iterations: usize,
     pub final_gap: f64,
     pub termination: IpmTermination,
+    pub oracle_mode: OracleMode,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +51,12 @@ pub enum OracleMode {
     Dynamic,
     Fallback,
     Hybrid,
+}
+
+impl Default for OracleMode {
+    fn default() -> Self {
+        OracleMode::Hybrid
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +369,7 @@ impl IpmSummary {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
             termination,
+            oracle_mode: stats.oracle_mode,
         }
     }
 }
