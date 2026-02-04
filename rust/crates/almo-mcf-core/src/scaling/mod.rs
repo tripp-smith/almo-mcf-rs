@@ -74,7 +74,8 @@ pub fn solve_mcf_with_scaling(
         &ipm_result.stats,
         ipm_result.termination,
     ));
-    let mut solution = finalize_ipm_solution(&capacity.scaled_problem, ipm_result, ipm_stats)?;
+    let mut solution =
+        finalize_ipm_solution(&capacity.scaled_problem, ipm_result, ipm_stats, opts)?;
     solution.solver_mode = SolverMode::IpmScaled;
 
     if capacity.scale_factor != 1 {

@@ -169,25 +169,38 @@ fn solver_mode_label(mode: SolverMode) -> &'static str {
 fn stats_to_dict(
     py: Python<'_>,
     solver_mode: SolverMode,
-    ipm_stats: Option<(IpmTermination, usize, f64)>,
+    ipm_stats: Option<almo_mcf_core::IpmSummary>,
 ) -> PyResult<PyObject> {
     let dict = PyDict::new_bound(py);
     dict.set_item("solver_mode", solver_mode_label(solver_mode))?;
-    let (termination_label, iterations, final_gap) =
-        if let Some((termination, iterations, final_gap)) = ipm_stats {
-            let termination_label = match termination {
-                IpmTermination::Converged => "converged",
-                IpmTermination::IterationLimit => "iteration_limit",
-                IpmTermination::TimeLimit => "time_limit",
-                IpmTermination::NoImprovingCycle => "no_improving_cycle",
-            };
-            (termination_label, iterations, final_gap)
-        } else {
-            ("classic", 0, 0.0)
+    let (termination_label, iterations, final_gap, summary) = if let Some(summary) = ipm_stats {
+        let termination_label = match summary.termination {
+            IpmTermination::Converged => "converged",
+            IpmTermination::IterationLimit => "iteration_limit",
+            IpmTermination::TimeLimit => "time_limit",
+            IpmTermination::NoImprovingCycle => "no_improving_cycle",
         };
+        (
+            termination_label,
+            summary.iterations,
+            summary.final_gap,
+            Some(summary),
+        )
+    } else {
+        ("classic", 0, 0.0, None)
+    };
     dict.set_item("termination", termination_label)?;
     dict.set_item("iterations", iterations)?;
     dict.set_item("final_gap", final_gap)?;
+    if let Some(summary) = summary {
+        dict.set_item("rounding_performed", summary.rounding_performed)?;
+        dict.set_item("rounding_success", summary.rounding_success)?;
+        dict.set_item("final_integer_cost", summary.final_integer_cost)?;
+        dict.set_item("post_rounding_gap", summary.post_rounding_gap)?;
+        dict.set_item("cycles_canceled", summary.cycles_canceled)?;
+        dict.set_item("rounding_adjustment_cost", summary.rounding_adjustment_cost)?;
+        dict.set_item("is_exact_optimal", summary.is_exact_optimal)?;
+    }
     Ok(dict.to_object(py))
 }
 
@@ -281,13 +294,7 @@ fn min_cost_flow_edges_with_options(
     let solution = min_cost_flow_exact(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
 
-    let stats = Some(stats_to_dict(
-        py,
-        solution.solver_mode,
-        solution
-            .ipm_stats
-            .map(|stats| (stats.termination, stats.iterations, stats.final_gap)),
-    )?);
+    let stats = Some(stats_to_dict(py, solution.solver_mode, solution.ipm_stats)?);
 
     Ok((PyArray1::from_vec_bound(py, solution.flow).unbind(), stats))
 }
@@ -360,13 +367,7 @@ fn min_cost_flow_edges_with_scaling(
     let solution = min_cost_flow_exact(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
 
-    let stats = Some(stats_to_dict(
-        py,
-        solution.solver_mode,
-        solution
-            .ipm_stats
-            .map(|stats| (stats.termination, stats.iterations, stats.final_gap)),
-    )?);
+    let stats = Some(stats_to_dict(py, solution.solver_mode, solution.ipm_stats)?);
 
     Ok((PyArray1::from_vec_bound(py, solution.flow).unbind(), stats))
 }
@@ -441,15 +442,20 @@ fn run_ipm_edges(
 
     let ipm_result = ipm::run_ipm(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-    let stats = stats_to_dict(
-        py,
-        SolverMode::Ipm,
-        Some((
-            ipm_result.termination,
-            ipm_result.stats.iterations,
-            ipm_result.stats.last_gap,
-        )),
-    )?;
+    let summary = almo_mcf_core::IpmSummary {
+        iterations: ipm_result.stats.iterations,
+        final_gap: ipm_result.stats.last_gap,
+        termination: ipm_result.termination,
+        oracle_mode: ipm_result.stats.oracle_mode,
+        rounding_performed: false,
+        rounding_success: false,
+        final_integer_cost: None,
+        post_rounding_gap: None,
+        cycles_canceled: 0,
+        rounding_adjustment_cost: None,
+        is_exact_optimal: false,
+    };
+    let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((
         PyArray1::from_vec_bound(py, ipm_result.flow).unbind(),
         stats,

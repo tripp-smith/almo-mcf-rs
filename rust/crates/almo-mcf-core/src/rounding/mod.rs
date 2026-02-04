@@ -1,5 +1,10 @@
 use crate::graph::min_cost_flow::MinCostFlow;
+use crate::graph::Graph;
 use crate::{McfError, McfProblem, McfSolution, SolverMode};
+
+pub mod residual;
+
+use residual::{CancellationStats, ResidualGraph};
 
 const FRACTIONAL_EPS: f64 = 1e-9;
 
@@ -17,6 +22,13 @@ pub struct ResidualInstance {
     pub cost: Vec<i64>,
     pub demand: Vec<i64>,
     pub edge_map: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RoundingResult {
+    pub flow: Vec<i64>,
+    pub cost: i128,
+    pub adjustment_cost: Option<i64>,
 }
 
 pub fn build_residual_instance(
@@ -189,6 +201,60 @@ pub fn round_fractional_flow(
         ipm_stats: None,
         solver_mode: SolverMode::Classic,
     })
+}
+
+pub fn build_residual_graph_from_problem(
+    problem: &McfProblem,
+    approx_flow: &[f64],
+) -> Result<ResidualGraph, McfError> {
+    let demands = problem.demands.iter().map(|&d| d as f64).collect();
+    let mut graph = Graph::with_demands(demands);
+    for i in 0..problem.edge_count() {
+        graph.add_edge(
+            crate::graph::NodeId(problem.tails[i] as usize),
+            crate::graph::NodeId(problem.heads[i] as usize),
+            problem.lower[i] as f64,
+            problem.upper[i] as f64,
+            problem.cost[i] as f64,
+        )?;
+    }
+    residual::build_residual_graph(approx_flow, &graph)
+}
+
+pub fn round_to_integer_flow(
+    approx_flow: &[f64],
+    problem: &McfProblem,
+    residual: &ResidualGraph,
+) -> Result<RoundingResult, McfError> {
+    let solution = round_fractional_flow(problem, approx_flow)?;
+    let approx_cost = approx_flow
+        .iter()
+        .zip(problem.cost.iter())
+        .map(|(&f, &c)| f * c as f64)
+        .sum::<f64>();
+    let adjustment_cost = if approx_cost.is_finite() {
+        let delta = solution.cost as f64 - approx_cost;
+        i64::try_from(delta.round() as i128).ok()
+    } else {
+        None
+    };
+    if residual.total_demand_imbalance() > FRACTIONAL_EPS {
+        return Err(McfError::InvalidInput(
+            "residual demand imbalance too large".to_string(),
+        ));
+    }
+    Ok(RoundingResult {
+        flow: solution.flow,
+        cost: solution.cost,
+        adjustment_cost,
+    })
+}
+
+pub fn cancel_negative_cycles_in_residual(
+    residual: &mut ResidualGraph,
+    max_iterations: Option<usize>,
+) -> Result<CancellationStats, McfError> {
+    residual::cancel_negative_cycles(residual, max_iterations)
 }
 
 #[cfg(test)]

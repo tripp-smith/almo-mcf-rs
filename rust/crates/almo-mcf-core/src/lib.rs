@@ -10,7 +10,10 @@ pub mod trees;
 
 use crate::graph::min_cost_flow::MinCostFlow;
 use crate::ipm::{IpmStats, IpmTermination};
-use crate::rounding::round_fractional_flow;
+use crate::rounding::{
+    build_residual_graph_from_problem, cancel_negative_cycles_in_residual, residual,
+    round_to_integer_flow,
+};
 
 #[derive(Debug, Clone)]
 pub struct McfProblem {
@@ -38,6 +41,13 @@ pub struct IpmSummary {
     pub final_gap: f64,
     pub termination: IpmTermination,
     pub oracle_mode: OracleMode,
+    pub rounding_performed: bool,
+    pub rounding_success: bool,
+    pub final_integer_cost: Option<i64>,
+    pub post_rounding_gap: Option<f64>,
+    pub cycles_canceled: usize,
+    pub rounding_adjustment_cost: Option<i64>,
+    pub is_exact_optimal: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +90,7 @@ pub struct McfOptions {
     pub use_scaling: Option<bool>,
     pub force_cost_scaling: bool,
     pub disable_capacity_scaling: bool,
+    pub use_rounding: Option<bool>,
 }
 
 impl Default for McfOptions {
@@ -101,6 +112,7 @@ impl Default for McfOptions {
             use_scaling: None,
             force_cost_scaling: false,
             disable_capacity_scaling: false,
+            use_rounding: None,
         }
     }
 }
@@ -204,7 +216,7 @@ pub fn min_cost_flow_exact(
         ipm_result.termination,
     ));
 
-    finalize_ipm_solution(problem, ipm_result, ipm_stats)
+    finalize_ipm_solution(problem, ipm_result, ipm_stats, opts)
 }
 
 pub fn min_cost_flow_scaled(
@@ -365,6 +377,13 @@ impl IpmSummary {
             final_gap: stats.last_gap,
             termination,
             oracle_mode: stats.oracle_mode,
+            rounding_performed: false,
+            rounding_success: false,
+            final_integer_cost: None,
+            post_rounding_gap: None,
+            cycles_canceled: 0,
+            rounding_adjustment_cost: None,
+            is_exact_optimal: false,
         }
     }
 }
@@ -372,7 +391,8 @@ impl IpmSummary {
 pub(crate) fn finalize_ipm_solution(
     problem: &McfProblem,
     ipm_result: ipm::IpmResult,
-    ipm_stats: Option<IpmSummary>,
+    mut ipm_stats: Option<IpmSummary>,
+    opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
     if ipm_result.termination != IpmTermination::Converged {
         let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
@@ -387,8 +407,16 @@ pub(crate) fn finalize_ipm_solution(
         return Ok(solution);
     }
 
-    let rounded = match round_fractional_flow(problem, &ipm_result.flow) {
-        Ok(solution) => solution,
+    if opts.use_rounding == Some(false) {
+        let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
+        solution.ipm_stats = ipm_stats;
+        return Ok(solution);
+    }
+
+    let mut residual = build_residual_graph_from_problem(problem, &ipm_result.flow)?;
+    let cancel_stats = cancel_negative_cycles_in_residual(&mut residual, None)?;
+    let rounded = match round_to_integer_flow(&residual.flow, problem, &residual) {
+        Ok(result) => result,
         Err(err) => {
             if matches!(err, McfError::Infeasible) {
                 let mut solution = solve_classic_with_mode(problem, SolverMode::ClassicFallback)?;
@@ -398,9 +426,32 @@ pub(crate) fn finalize_ipm_solution(
             return Err(err);
         }
     };
-    let mut solution = rounded;
-    solution.ipm_stats = ipm_stats;
-    solution.solver_mode = SolverMode::Ipm;
+
+    if let Some(stats) = ipm_stats.as_mut() {
+        stats.rounding_performed = true;
+        stats.rounding_success = true;
+        stats.cycles_canceled = cancel_stats.cycles_canceled;
+        stats.rounding_adjustment_cost = rounded.adjustment_cost;
+        stats.final_integer_cost = i64::try_from(rounded.cost).ok();
+
+        let rounded_flow_f64: Vec<f64> = rounded.flow.iter().map(|&v| v as f64).collect();
+        let post_residual = build_residual_graph_from_problem(problem, &rounded_flow_f64)?;
+        let post_gap = if post_residual.is_epsilon_feasible(1e-9) {
+            0.0
+        } else {
+            post_residual.total_demand_imbalance()
+        };
+        stats.post_rounding_gap =
+            Some(residual::negative_cycle_cost(&post_residual).unwrap_or(post_gap));
+        stats.is_exact_optimal = post_gap <= 1e-9 && !residual::has_negative_cycle(&post_residual);
+    }
+
+    let solution = McfSolution {
+        flow: rounded.flow,
+        cost: rounded.cost,
+        ipm_stats,
+        solver_mode: SolverMode::Ipm,
+    };
     Ok(solution)
 }
 
