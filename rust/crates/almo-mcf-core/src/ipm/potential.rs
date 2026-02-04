@@ -1,6 +1,7 @@
-#[cfg(feature = "simd")]
-use crate::numerics::barrier::barrier_power_simd;
-use crate::numerics::barrier::safe_log;
+use crate::numerics::barrier::{
+    clamped_alpha, guarded_inverse_with_stats, guarded_log_with_stats, guarded_pow_with_stats,
+    BarrierClampConfig, BarrierClampStats,
+};
 use crate::numerics::GRADIENT_EPSILON;
 
 #[derive(Debug, Clone)]
@@ -11,6 +12,16 @@ pub struct Residuals {
 
 impl Residuals {
     pub fn new(flow: &[f64], lower: &[f64], upper: &[f64], min_delta: f64) -> Self {
+        Self::new_with_stats(flow, lower, upper, min_delta, None)
+    }
+
+    pub fn new_with_stats(
+        flow: &[f64],
+        lower: &[f64],
+        upper: &[f64],
+        min_delta: f64,
+        mut stats: Option<&mut BarrierClampStats>,
+    ) -> Self {
         let mut upper_res = vec![0.0; flow.len()];
         let mut lower_res = vec![0.0; flow.len()];
         for ((u_res, l_res), ((f, l), u)) in upper_res
@@ -18,8 +29,21 @@ impl Residuals {
             .zip(lower_res.iter_mut())
             .zip(flow.iter().zip(lower.iter()).zip(upper.iter()))
         {
-            *u_res = (*u - *f).max(min_delta);
-            *l_res = (*f - *l).max(min_delta);
+            let upper_delta = *u - *f;
+            let lower_delta = *f - *l;
+            let clamped_upper = upper_delta.max(min_delta);
+            let clamped_lower = lower_delta.max(min_delta);
+            if clamped_upper != upper_delta || clamped_lower != lower_delta {
+                if let Some(stats) = stats.as_mut() {
+                    stats.clamped_residuals += 1;
+                }
+            }
+            if let Some(stats) = stats.as_mut() {
+                stats.record_residual(clamped_upper);
+                stats.record_residual(clamped_lower);
+            }
+            *u_res = clamped_upper;
+            *l_res = clamped_lower;
         }
         Self {
             upper: upper_res,
@@ -28,6 +52,7 @@ impl Residuals {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compute_potential(
     cost: &[f64],
     flow: &[f64],
@@ -36,33 +61,41 @@ pub fn compute_potential(
     beta: f64,
     cost_lower_bound: f64,
     min_gap: f64,
+    clamp_config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
 ) -> f64 {
     let base_cost = cost
         .iter()
         .zip(flow.iter())
         .map(|(c, f)| c * f)
         .sum::<f64>();
-    #[cfg(feature = "simd")]
-    let barrier = {
-        let upper = barrier_power_simd(&residuals.upper, beta);
-        let lower = barrier_power_simd(&residuals.lower, beta);
-        upper
-            .iter()
-            .zip(lower.iter())
-            .map(|(upper, lower)| upper + lower)
-            .sum::<f64>()
-    };
-    #[cfg(not(feature = "simd"))]
     let barrier = residuals
         .upper
         .iter()
         .zip(residuals.lower.iter())
-        .map(|(upper, lower)| upper.powf(beta) + lower.powf(beta))
+        .map(|(upper, lower)| {
+            let upper_pow =
+                guarded_pow_with_stats(*upper, beta, clamp_config.max_log, stats.as_deref_mut());
+            let lower_pow =
+                guarded_pow_with_stats(*lower, beta, clamp_config.max_log, stats.as_deref_mut());
+            let combined = (upper_pow + lower_pow).clamp(0.0, clamp_config.barrier_clamp_max);
+            if combined != upper_pow + lower_pow {
+                if let Some(stats) = stats.as_mut() {
+                    stats.clamped_barrier += 1;
+                }
+            }
+            if let Some(stats) = stats.as_mut() {
+                stats.record_barrier_value(combined);
+            }
+            combined
+        })
         .sum::<f64>();
     let gap = (base_cost - cost_lower_bound).max(min_gap);
-    base_cost + (1.0 / alpha) * safe_log(gap, min_gap) + barrier
+    let log_term = guarded_log_with_stats(gap, min_gap, stats);
+    base_cost + (1.0 / alpha) * log_term + barrier
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compute_gradient(
     cost: &[f64],
     flow: &[f64],
@@ -71,6 +104,8 @@ pub fn compute_gradient(
     beta: f64,
     cost_lower_bound: f64,
     min_gap: f64,
+    clamp_config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
 ) -> Vec<f64> {
     let base_cost = cost
         .iter()
@@ -79,34 +114,48 @@ pub fn compute_gradient(
         .sum::<f64>();
     let gap = (base_cost - cost_lower_bound).max(min_gap);
     let log_coeff = 1.0 / alpha;
-    #[cfg(feature = "simd")]
-    {
-        let upper_pow = barrier_power_simd(&residuals.upper, beta - 1.0);
-        let lower_pow = barrier_power_simd(&residuals.lower, beta - 1.0);
-        cost.iter()
-            .enumerate()
-            .map(|(idx, c)| {
-                let barrier_term = beta * (upper_pow[idx] - lower_pow[idx]);
-                c + log_coeff * (c / gap) + barrier_term
-            })
-            .collect()
-    }
-    #[cfg(not(feature = "simd"))]
-    {
-        cost.iter()
-            .zip(residuals.upper.iter().zip(residuals.lower.iter()))
-            .map(|(c, (upper, lower))| {
-                let barrier_term = beta * (upper.powf(beta - 1.0) - lower.powf(beta - 1.0));
-                c + log_coeff * (c / gap) + barrier_term
-            })
-            .collect()
-    }
+    let gap_inv = guarded_inverse_with_stats(gap, clamp_config.min_x, stats.as_deref_mut());
+    cost.iter()
+        .zip(residuals.upper.iter().zip(residuals.lower.iter()))
+        .map(|(c, (upper, lower))| {
+            let upper_pow = guarded_pow_with_stats(
+                *upper,
+                beta - 1.0,
+                clamp_config.max_log,
+                stats.as_deref_mut(),
+            );
+            let lower_pow = guarded_pow_with_stats(
+                *lower,
+                beta - 1.0,
+                clamp_config.max_log,
+                stats.as_deref_mut(),
+            );
+            let barrier_term = beta * (upper_pow - lower_pow);
+            let clamped_barrier_term = barrier_term.clamp(
+                -clamp_config.gradient_clamp_max,
+                clamp_config.gradient_clamp_max,
+            );
+            if clamped_barrier_term != barrier_term {
+                if let Some(stats) = stats.as_mut() {
+                    stats.clamped_gradient += 1;
+                }
+            }
+            c + log_coeff * (c * gap_inv) + clamped_barrier_term
+        })
+        .collect()
 }
 
-pub fn compute_lengths(gradient: &[f64]) -> Vec<f64> {
+pub fn compute_lengths(
+    gradient: &[f64],
+    clamp_config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> Vec<f64> {
     gradient
         .iter()
-        .map(|g| 1.0 / g.abs().max(GRADIENT_EPSILON))
+        .map(|g| {
+            let denom = g.abs().max(GRADIENT_EPSILON);
+            guarded_inverse_with_stats(denom, clamp_config.min_x, stats.as_deref_mut())
+        })
         .collect()
 }
 
@@ -119,11 +168,17 @@ pub struct Potential {
     pub m_u: f64,
     pub edge_count: f64,
     pub cost_lower_bound: f64,
+    pub clamp_config: BarrierClampConfig,
 }
 
 impl Potential {
-    pub fn new(upper: &[f64], alpha_override: Option<f64>, threads: usize) -> Self {
-        Self::new_with_lower_bound(upper, alpha_override, None, threads, 0.0)
+    pub fn new(
+        upper: &[f64],
+        alpha_override: Option<f64>,
+        threads: usize,
+        clamp_config: BarrierClampConfig,
+    ) -> Self {
+        Self::new_with_lower_bound(upper, alpha_override, None, threads, 0.0, clamp_config)
     }
 
     pub fn new_with_lower_bound(
@@ -132,6 +187,7 @@ impl Potential {
         beta_override: Option<f64>,
         threads: usize,
         cost_lower_bound: f64,
+        clamp_config: BarrierClampConfig,
     ) -> Self {
         let edge_count = upper.len().max(1) as f64;
         let max_upper = upper
@@ -141,18 +197,22 @@ impl Potential {
         let m_u = (edge_count * max_upper).max(1.0);
         let denom = (m_u.log2()).max(1.0);
         let default_alpha = 1.0 / (1000.0 * denom);
-        let alpha = alpha_override
-            .filter(|value| *value > 0.0)
-            .unwrap_or(default_alpha);
+        let alpha = clamped_alpha(
+            alpha_override
+                .filter(|value| *value > 0.0)
+                .unwrap_or(default_alpha),
+            &clamp_config,
+        );
         let beta = beta_override.filter(|value| *value > 0.0).unwrap_or(1.1);
         Self {
             alpha,
             beta,
-            min_delta: 1e-9,
+            min_delta: clamp_config.residual_min,
             threads,
             m_u,
             edge_count,
             cost_lower_bound,
+            clamp_config,
         }
     }
 
@@ -162,6 +222,16 @@ impl Potential {
     }
 
     pub fn value_with_residuals(&self, cost: &[f64], flow: &[f64], residuals: &Residuals) -> f64 {
+        self.value_with_residuals_and_stats(cost, flow, residuals, None)
+    }
+
+    pub fn value_with_residuals_and_stats(
+        &self,
+        cost: &[f64],
+        flow: &[f64],
+        residuals: &Residuals,
+        stats: Option<&mut BarrierClampStats>,
+    ) -> f64 {
         compute_potential(
             cost,
             flow,
@@ -170,11 +240,21 @@ impl Potential {
             self.beta,
             self.cost_lower_bound,
             self.rounding_threshold(),
+            &self.clamp_config,
+            stats,
         )
     }
 
     pub fn lengths_from_gradient(&self, gradient: &[f64]) -> Vec<f64> {
-        compute_lengths(gradient)
+        self.lengths_from_gradient_with_stats(gradient, None)
+    }
+
+    pub fn lengths_from_gradient_with_stats(
+        &self,
+        gradient: &[f64],
+        stats: Option<&mut BarrierClampStats>,
+    ) -> Vec<f64> {
+        compute_lengths(gradient, &self.clamp_config, stats)
     }
 
     pub fn gradient(&self, cost: &[f64], flow: &[f64], lower: &[f64], upper: &[f64]) -> Vec<f64> {
@@ -188,6 +268,16 @@ impl Potential {
         flow: &[f64],
         residuals: &Residuals,
     ) -> Vec<f64> {
+        self.gradient_with_residuals_and_stats(cost, flow, residuals, None)
+    }
+
+    pub fn gradient_with_residuals_and_stats(
+        &self,
+        cost: &[f64],
+        flow: &[f64],
+        residuals: &Residuals,
+        stats: Option<&mut BarrierClampStats>,
+    ) -> Vec<f64> {
         compute_gradient(
             cost,
             flow,
@@ -196,6 +286,8 @@ impl Potential {
             self.beta,
             self.cost_lower_bound,
             self.rounding_threshold(),
+            &self.clamp_config,
+            stats,
         )
     }
 
@@ -205,22 +297,17 @@ impl Potential {
             .zip(flow.iter())
             .map(|(c, f)| c * f)
             .sum::<f64>();
-        #[cfg(feature = "simd")]
-        let barrier = {
-            let upper = barrier_power_simd(&residuals.upper, self.beta);
-            let lower = barrier_power_simd(&residuals.lower, self.beta);
-            upper
-                .iter()
-                .zip(lower.iter())
-                .map(|(upper, lower)| upper + lower)
-                .sum::<f64>()
-        };
-        #[cfg(not(feature = "simd"))]
         let barrier = residuals
             .upper
             .iter()
             .zip(residuals.lower.iter())
-            .map(|(upper, lower)| upper.powf(self.beta) + lower.powf(self.beta))
+            .map(|(upper, lower)| {
+                let upper_pow =
+                    guarded_pow_with_stats(*upper, self.beta, self.clamp_config.max_log, None);
+                let lower_pow =
+                    guarded_pow_with_stats(*lower, self.beta, self.clamp_config.max_log, None);
+                (upper_pow + lower_pow).clamp(0.0, self.clamp_config.barrier_clamp_max)
+            })
             .sum::<f64>();
         let cost_gap = (base_cost - self.cost_lower_bound).max(0.0);
         cost_gap + barrier / self.beta
@@ -255,7 +342,7 @@ mod tests {
     #[test]
     fn derives_alpha_and_thresholds_from_m_u() {
         let upper = vec![10.0, 5.0];
-        let potential = Potential::new(&upper, None, 1);
+        let potential = Potential::new(&upper, None, 1, BarrierClampConfig::default());
         assert!(potential.alpha > 0.0);
         assert!(potential.rounding_threshold() < 1.0);
         assert!(potential.termination_target().is_sign_negative());
@@ -264,7 +351,7 @@ mod tests {
     #[test]
     fn reduction_floor_scales_with_potential() {
         let upper = vec![8.0, 4.0, 6.0];
-        let potential = Potential::new(&upper, None, 1);
+        let potential = Potential::new(&upper, None, 1, BarrierClampConfig::default());
         let floor_small = potential.reduction_floor(1.0);
         let floor_large = potential.reduction_floor(100.0);
         assert!(floor_small > 0.0);
@@ -278,8 +365,15 @@ mod tests {
         let lower = vec![0.0, 0.0];
         let flow = vec![2.0, 1.0];
         let cost = vec![3.0, 5.0];
-        let base = Potential::new(&upper, None, 1);
-        let with_gap = Potential::new_with_lower_bound(&upper, None, None, 1, 1.0);
+        let base = Potential::new(&upper, None, 1, BarrierClampConfig::default());
+        let with_gap = Potential::new_with_lower_bound(
+            &upper,
+            None,
+            None,
+            1,
+            1.0,
+            BarrierClampConfig::default(),
+        );
 
         let base_grad = base.gradient(&cost, &flow, &lower, &upper);
         let base_cost = cost[0] * flow[0] + cost[1] * flow[1];
@@ -298,7 +392,7 @@ mod tests {
     #[test]
     fn kappa_floor_is_small_positive() {
         let upper = vec![2.0, 3.0, 5.0];
-        let potential = Potential::new(&upper, None, 1);
+        let potential = Potential::new(&upper, None, 1, BarrierClampConfig::default());
         let kappa_floor = potential.kappa_floor();
         assert!(kappa_floor > 0.0);
         assert!(kappa_floor < 1.0);
@@ -310,7 +404,14 @@ mod tests {
         let lower = vec![0.0];
         let flow = vec![1.0];
         let cost = vec![2.0];
-        let potential = Potential::new_with_lower_bound(&upper, Some(0.5), Some(0.5), 1, 0.0);
+        let potential = Potential::new_with_lower_bound(
+            &upper,
+            Some(0.5),
+            Some(0.5),
+            1,
+            0.0,
+            BarrierClampConfig::default(),
+        );
 
         let base_cost: f64 = cost[0] * flow[0];
         let gap = base_cost.max(potential.rounding_threshold());

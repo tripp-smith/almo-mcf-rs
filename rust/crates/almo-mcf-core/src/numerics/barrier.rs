@@ -1,3 +1,109 @@
+pub const DEFAULT_MAX_LOG: f64 = 700.0;
+pub const MIN_POSITIVE: f64 = 1e-300;
+pub const BARRIER_ALPHA_MIN: f64 = 1e-6;
+pub const BARRIER_ALPHA_MAX: f64 = 1.0;
+pub const RESIDUAL_MIN: f64 = 1e-12;
+pub const BARRIER_CLAMP_MAX: f64 = 1e200;
+pub const GRADIENT_CLAMP_MAX: f64 = 1e100;
+
+#[derive(Debug, Clone)]
+pub struct BarrierClampConfig {
+    pub max_log: f64,
+    pub min_x: f64,
+    pub residual_min: f64,
+    pub barrier_clamp_max: f64,
+    pub gradient_clamp_max: f64,
+    pub alpha_min: f64,
+    pub alpha_max: f64,
+}
+
+impl Default for BarrierClampConfig {
+    fn default() -> Self {
+        Self {
+            max_log: DEFAULT_MAX_LOG,
+            min_x: MIN_POSITIVE,
+            residual_min: RESIDUAL_MIN,
+            barrier_clamp_max: BARRIER_CLAMP_MAX,
+            gradient_clamp_max: GRADIENT_CLAMP_MAX,
+            alpha_min: BARRIER_ALPHA_MIN,
+            alpha_max: BARRIER_ALPHA_MAX,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BarrierClampStats {
+    pub clamped_logs: usize,
+    pub clamped_inverses: usize,
+    pub clamped_powers: usize,
+    pub clamped_residuals: usize,
+    pub clamped_barrier: usize,
+    pub clamped_gradient: usize,
+    pub clamped_alpha: usize,
+    pub max_barrier_value: f64,
+    pub min_residual_seen: f64,
+}
+
+impl Default for BarrierClampStats {
+    fn default() -> Self {
+        Self {
+            clamped_logs: 0,
+            clamped_inverses: 0,
+            clamped_powers: 0,
+            clamped_residuals: 0,
+            clamped_barrier: 0,
+            clamped_gradient: 0,
+            clamped_alpha: 0,
+            max_barrier_value: 0.0,
+            min_residual_seen: f64::INFINITY,
+        }
+    }
+}
+
+impl BarrierClampStats {
+    pub fn record_residual(&mut self, residual: f64) {
+        if residual < self.min_residual_seen {
+            self.min_residual_seen = residual;
+        }
+    }
+
+    pub fn record_barrier_value(&mut self, value: f64) {
+        if value.is_finite() && value > self.max_barrier_value {
+            self.max_barrier_value = value;
+        }
+    }
+
+    pub fn total_clamps(&self) -> usize {
+        self.clamped_logs
+            + self.clamped_inverses
+            + self.clamped_powers
+            + self.clamped_residuals
+            + self.clamped_barrier
+            + self.clamped_gradient
+            + self.clamped_alpha
+    }
+
+    pub fn clamping_occurred(&self) -> bool {
+        self.total_clamps() > 0
+    }
+
+    pub fn merge(&mut self, other: &Self) {
+        self.clamped_logs += other.clamped_logs;
+        self.clamped_inverses += other.clamped_inverses;
+        self.clamped_powers += other.clamped_powers;
+        self.clamped_residuals += other.clamped_residuals;
+        self.clamped_barrier += other.clamped_barrier;
+        self.clamped_gradient += other.clamped_gradient;
+        self.clamped_alpha += other.clamped_alpha;
+        if other.max_barrier_value > self.max_barrier_value {
+            self.max_barrier_value = other.max_barrier_value;
+        }
+        if other.min_residual_seen < self.min_residual_seen {
+            self.min_residual_seen = other.min_residual_seen;
+        }
+    }
+}
+
 #[inline]
 fn clamp_min(value: f64, min_value: f64) -> f64 {
     if value < min_value {
@@ -7,6 +113,192 @@ fn clamp_min(value: f64, min_value: f64) -> f64 {
     }
 }
 
+pub fn guarded_pow(base: f64, exp: f64, max_log: f64) -> f64 {
+    guarded_pow_with_stats(base, exp, max_log, None)
+}
+
+pub fn guarded_pow_with_stats(
+    base: f64,
+    exp: f64,
+    max_log: f64,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    if base <= 0.0 {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_powers += 1;
+        }
+        return 0.0;
+    }
+    let log_base = base.ln();
+    let clamped_log = log_base.clamp(-max_log, max_log);
+    if clamped_log != log_base {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_logs += 1;
+        }
+    }
+    let log_val = exp * clamped_log;
+    if log_val > max_log {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_powers += 1;
+        }
+        f64::INFINITY
+    } else if log_val < -max_log {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_powers += 1;
+        }
+        0.0
+    } else {
+        log_val.exp()
+    }
+}
+
+pub fn guarded_log(x: f64, min_x: f64) -> f64 {
+    guarded_log_with_stats(x, min_x, None)
+}
+
+pub fn guarded_log_with_stats(
+    x: f64,
+    min_x: f64,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    if x <= 0.0 {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_logs += 1;
+        }
+        return f64::NEG_INFINITY;
+    }
+    let clamped = x.max(min_x);
+    if clamped != x {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_logs += 1;
+        }
+    }
+    clamped.ln()
+}
+
+pub fn guarded_inverse(x: f64, min_x: f64) -> f64 {
+    guarded_inverse_with_stats(x, min_x, None)
+}
+
+pub fn guarded_inverse_with_stats(
+    x: f64,
+    min_x: f64,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    if x.abs() < min_x {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_inverses += 1;
+        }
+        return 1.0 / min_x.copysign(x);
+    }
+    1.0 / x
+}
+
+pub fn guarded_pow_slice(values: &[f64], exp: f64, max_log: f64) -> Vec<f64> {
+    values
+        .iter()
+        .map(|&value| guarded_pow(value, exp, max_log))
+        .collect()
+}
+
+pub fn guarded_log_slice(values: &[f64], min_x: f64) -> Vec<f64> {
+    values
+        .iter()
+        .map(|&value| guarded_log(value, min_x))
+        .collect()
+}
+
+pub fn guarded_inverse_slice(values: &[f64], min_x: f64) -> Vec<f64> {
+    values
+        .iter()
+        .map(|&value| guarded_inverse(value, min_x))
+        .collect()
+}
+
+pub fn clamped_alpha(alpha: f64, config: &BarrierClampConfig) -> f64 {
+    clamped_alpha_with_stats(alpha, config, None)
+}
+
+pub fn clamped_alpha_with_stats(
+    alpha: f64,
+    config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    let clamped = alpha.clamp(config.alpha_min, config.alpha_max);
+    if clamped != alpha {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_alpha += 1;
+        }
+    }
+    clamped
+}
+
+pub fn clamped_barrier_term(
+    residual: f64,
+    alpha: f64,
+    config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    if residual <= 0.0 {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_residuals += 1;
+            stats.clamped_barrier += 1;
+        }
+        return config.barrier_clamp_max;
+    }
+    let clamped_residual = residual.max(config.residual_min);
+    if clamped_residual != residual {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_residuals += 1;
+        }
+    }
+    let powered = guarded_pow_with_stats(
+        clamped_residual,
+        -alpha,
+        config.max_log,
+        stats.as_deref_mut(),
+    );
+    let clamped = powered.clamp(0.0, config.barrier_clamp_max);
+    if clamped != powered {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_barrier += 1;
+        }
+    }
+    if let Some(stats) = stats.as_mut() {
+        stats.record_barrier_value(clamped);
+        stats.record_residual(clamped_residual);
+    }
+    clamped
+}
+
+pub fn clamped_gradient_term(
+    residual: f64,
+    alpha: f64,
+    config: &BarrierClampConfig,
+    mut stats: Option<&mut BarrierClampStats>,
+) -> f64 {
+    if residual <= config.residual_min {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_residuals += 1;
+            stats.clamped_gradient += 1;
+        }
+        return config.gradient_clamp_max;
+    }
+    let powered =
+        guarded_pow_with_stats(residual, -alpha - 1.0, config.max_log, stats.as_deref_mut());
+    let deriv = alpha * powered;
+    let clamped = deriv.clamp(-config.gradient_clamp_max, config.gradient_clamp_max);
+    if clamped != deriv {
+        if let Some(stats) = stats.as_mut() {
+            stats.clamped_gradient += 1;
+        }
+    }
+    if let Some(stats) = stats.as_mut() {
+        stats.record_residual(residual);
+    }
+    clamped
+}
+
 #[cfg(feature = "simd")]
 pub fn barrier_inverse_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
     use std::simd::{Simd, SimdFloat};
@@ -14,11 +306,14 @@ pub fn barrier_inverse_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
     const LANES: usize = 4;
     let mut result = vec![0.0; x.len()];
     let alpha_vec = Simd::splat(-alpha);
+    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
+    let max_log = Simd::splat(DEFAULT_MAX_LOG);
     let chunks = x.len() / LANES;
     for i in 0..chunks {
         let base = i * LANES;
         let vec = Simd::from_slice(&x[base..base + LANES]);
-        let powered = (vec.ln() * alpha_vec).exp();
+        let log_val = (vec.ln() * alpha_vec).simd_max(min_log).simd_min(max_log);
+        let powered = log_val.exp();
         powered.write_to_slice(&mut result[base..base + LANES]);
     }
     for idx in (chunks * LANES)..x.len() {
@@ -39,11 +334,14 @@ pub fn barrier_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
     const LANES: usize = 4;
     let mut result = vec![0.0; x.len()];
     let alpha_vec = Simd::splat(alpha);
+    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
+    let max_log = Simd::splat(DEFAULT_MAX_LOG);
     let chunks = x.len() / LANES;
     for i in 0..chunks {
         let base = i * LANES;
         let vec = Simd::from_slice(&x[base..base + LANES]);
-        let powered = (vec.ln() * alpha_vec).exp();
+        let log_val = (vec.ln() * alpha_vec).simd_max(min_log).simd_min(max_log);
+        let powered = log_val.exp();
         powered.write_to_slice(&mut result[base..base + LANES]);
     }
     for idx in (chunks * LANES)..x.len() {
@@ -110,12 +408,13 @@ fn preprocess_deltas_simd(
 }
 
 fn barrier_term(delta: f64, beta: f64) -> f64 {
-    let exponent = -(beta * safe_log(delta, 1e-12));
-    safe_exp(exponent, 700.0)
+    let config = BarrierClampConfig::default();
+    clamped_barrier_term(delta, beta, &config, None)
 }
 
 fn barrier_term_derivative(delta: f64, beta: f64) -> f64 {
-    -(beta / delta) * barrier_term(delta, beta)
+    let config = BarrierClampConfig::default();
+    -clamped_gradient_term(delta, beta, &config, None)
 }
 
 #[cfg(feature = "simd")]
@@ -129,13 +428,21 @@ fn barrier_lengths_simd_slice(
 
     const LANES: usize = 4;
     let beta_vec = Simd::splat(beta);
+    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
+    let max_log = Simd::splat(DEFAULT_MAX_LOG);
     let chunks = output.len() / LANES;
     for i in 0..chunks {
         let base = i * LANES;
         let upper_v = Simd::from_slice(&upper_delta[base..base + LANES]);
         let lower_v = Simd::from_slice(&lower_delta[base..base + LANES]);
-        let upper_term = (upper_v.ln() * -beta_vec).exp();
-        let lower_term = (lower_v.ln() * -beta_vec).exp();
+        let upper_term = (upper_v.ln() * -beta_vec)
+            .simd_max(min_log)
+            .simd_min(max_log)
+            .exp();
+        let lower_term = (lower_v.ln() * -beta_vec)
+            .simd_max(min_log)
+            .simd_min(max_log)
+            .exp();
         (upper_term + lower_term).write_to_slice(&mut output[base..base + LANES]);
     }
     for idx in (chunks * LANES)..output.len() {
@@ -169,13 +476,21 @@ fn barrier_gradient_simd_slice(
 
     const LANES: usize = 4;
     let beta_vec = Simd::splat(beta);
+    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
+    let max_log = Simd::splat(DEFAULT_MAX_LOG);
     let chunks = output.len() / LANES;
     for i in 0..chunks {
         let base = i * LANES;
         let upper_v = Simd::from_slice(&upper_delta[base..base + LANES]);
         let lower_v = Simd::from_slice(&lower_delta[base..base + LANES]);
-        let upper_term = (upper_v.ln() * -beta_vec).exp();
-        let lower_term = (lower_v.ln() * -beta_vec).exp();
+        let upper_term = (upper_v.ln() * -beta_vec)
+            .simd_max(min_log)
+            .simd_min(max_log)
+            .exp();
+        let lower_term = (lower_v.ln() * -beta_vec)
+            .simd_max(min_log)
+            .simd_min(max_log)
+            .exp();
         let upper_grad = (beta_vec / upper_v) * upper_term;
         let lower_grad = -(beta_vec / lower_v) * lower_term;
         (upper_grad + lower_grad).write_to_slice(&mut output[base..base + LANES]);

@@ -67,6 +67,13 @@ fn build_options(
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
+    numerical_clamp_log: Option<f64>,
+    residual_min: Option<f64>,
+    barrier_alpha_min: Option<f64>,
+    barrier_alpha_max: Option<f64>,
+    barrier_clamp_max: Option<f64>,
+    gradient_clamp_max: Option<f64>,
+    log_numerical_clamping: Option<bool>,
     seed: Option<u64>,
     deterministic_seed: Option<u64>,
     threads: Option<usize>,
@@ -84,6 +91,57 @@ fn build_options(
     }
     if let Some(value) = tolerance {
         opts.tolerance = value;
+    }
+    if let Some(value) = numerical_clamp_log {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "numerical_clamp_log must be positive",
+            ));
+        }
+        opts.numerical_clamp_log = value;
+    }
+    if let Some(value) = residual_min {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "residual_min must be positive",
+            ));
+        }
+        opts.residual_min = value;
+    }
+    if let Some(value) = barrier_alpha_min {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "barrier_alpha_min must be positive",
+            ));
+        }
+        opts.barrier_alpha_min = value;
+    }
+    if let Some(value) = barrier_alpha_max {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "barrier_alpha_max must be positive",
+            ));
+        }
+        opts.barrier_alpha_max = value;
+    }
+    if let Some(value) = barrier_clamp_max {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "barrier_clamp_max must be positive",
+            ));
+        }
+        opts.barrier_clamp_max = value;
+    }
+    if let Some(value) = gradient_clamp_max {
+        if value <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "gradient_clamp_max must be positive",
+            ));
+        }
+        opts.gradient_clamp_max = value;
+    }
+    if let Some(value) = log_numerical_clamping {
+        opts.log_numerical_clamping = value;
     }
     if let Some(value) = seed {
         opts.seed = value;
@@ -212,6 +270,12 @@ fn stats_to_dict(
         dict.set_item("is_exact_optimal", summary.is_exact_optimal)?;
         dict.set_item("deterministic_mode_used", summary.deterministic_mode_used)?;
         dict.set_item("seed_used", summary.seed_used)?;
+        dict.set_item(
+            "numerical_clamping_occurred",
+            summary.numerical_clamping_occurred,
+        )?;
+        dict.set_item("max_barrier_value", summary.max_barrier_value)?;
+        dict.set_item("min_residual_seen", summary.min_residual_seen)?;
     }
     Ok(dict.to_object(py))
 }
@@ -251,6 +315,13 @@ fn min_cost_flow_edges(
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
+    numerical_clamp_log = None,
+    residual_min = None,
+    barrier_alpha_min = None,
+    barrier_alpha_max = None,
+    barrier_clamp_max = None,
+    gradient_clamp_max = None,
+    log_numerical_clamping = None,
     seed = None,
     deterministic_seed = None,
     threads = None,
@@ -276,6 +347,13 @@ fn min_cost_flow_edges_with_options(
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
+    numerical_clamp_log: Option<f64>,
+    residual_min: Option<f64>,
+    barrier_alpha_min: Option<f64>,
+    barrier_alpha_max: Option<f64>,
+    barrier_clamp_max: Option<f64>,
+    gradient_clamp_max: Option<f64>,
+    log_numerical_clamping: Option<bool>,
     seed: Option<u64>,
     deterministic_seed: Option<u64>,
     threads: Option<usize>,
@@ -294,6 +372,13 @@ fn min_cost_flow_edges_with_options(
         rebuild_every,
         max_iters,
         tolerance,
+        numerical_clamp_log,
+        residual_min,
+        barrier_alpha_min,
+        barrier_alpha_max,
+        barrier_clamp_max,
+        gradient_clamp_max,
+        log_numerical_clamping,
         seed,
         deterministic_seed,
         threads,
@@ -330,6 +415,13 @@ fn min_cost_flow_edges_with_options(
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
+    numerical_clamp_log = None,
+    residual_min = None,
+    barrier_alpha_min = None,
+    barrier_alpha_max = None,
+    barrier_clamp_max = None,
+    gradient_clamp_max = None,
+    log_numerical_clamping = None,
     seed = None,
     deterministic_seed = None,
     threads = None,
@@ -353,6 +445,13 @@ fn min_cost_flow_edges_with_scaling(
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
+    numerical_clamp_log: Option<f64>,
+    residual_min: Option<f64>,
+    barrier_alpha_min: Option<f64>,
+    barrier_alpha_max: Option<f64>,
+    barrier_clamp_max: Option<f64>,
+    gradient_clamp_max: Option<f64>,
+    log_numerical_clamping: Option<bool>,
     seed: Option<u64>,
     deterministic_seed: Option<u64>,
     threads: Option<usize>,
@@ -369,6 +468,13 @@ fn min_cost_flow_edges_with_scaling(
         rebuild_every,
         max_iters,
         tolerance,
+        numerical_clamp_log,
+        residual_min,
+        barrier_alpha_min,
+        barrier_alpha_max,
+        barrier_clamp_max,
+        gradient_clamp_max,
+        log_numerical_clamping,
         seed,
         deterministic_seed,
         threads,
@@ -406,6 +512,13 @@ fn min_cost_flow_edges_with_scaling(
     rebuild_every = None,
     max_iters = None,
     tolerance = None,
+    numerical_clamp_log = None,
+    residual_min = None,
+    barrier_alpha_min = None,
+    barrier_alpha_max = None,
+    barrier_clamp_max = None,
+    gradient_clamp_max = None,
+    log_numerical_clamping = None,
     seed = None,
     deterministic_seed = None,
     threads = None,
@@ -431,6 +544,13 @@ fn run_ipm_edges(
     rebuild_every: Option<usize>,
     max_iters: Option<usize>,
     tolerance: Option<f64>,
+    numerical_clamp_log: Option<f64>,
+    residual_min: Option<f64>,
+    barrier_alpha_min: Option<f64>,
+    barrier_alpha_max: Option<f64>,
+    barrier_clamp_max: Option<f64>,
+    gradient_clamp_max: Option<f64>,
+    log_numerical_clamping: Option<bool>,
     seed: Option<u64>,
     deterministic_seed: Option<u64>,
     threads: Option<usize>,
@@ -449,6 +569,13 @@ fn run_ipm_edges(
         rebuild_every,
         max_iters,
         tolerance,
+        numerical_clamp_log,
+        residual_min,
+        barrier_alpha_min,
+        barrier_alpha_max,
+        barrier_clamp_max,
+        gradient_clamp_max,
+        log_numerical_clamping,
         seed,
         deterministic_seed,
         threads,
@@ -463,6 +590,10 @@ fn run_ipm_edges(
 
     let ipm_result = ipm::run_ipm(&problem, &opts)
         .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+    let mut aggregate = almo_mcf_core::numerics::barrier::BarrierClampStats::default();
+    for item in &ipm_result.stats.barrier_clamp_stats {
+        aggregate.merge(item);
+    }
     let summary = almo_mcf_core::IpmSummary {
         iterations: ipm_result.stats.iterations,
         final_gap: ipm_result.stats.last_gap,
@@ -484,6 +615,9 @@ fn run_ipm_edges(
         cycles_canceled: 0,
         rounding_adjustment_cost: None,
         is_exact_optimal: false,
+        numerical_clamping_occurred: aggregate.clamping_occurred(),
+        max_barrier_value: aggregate.max_barrier_value,
+        min_residual_seen: aggregate.min_residual_seen,
     };
     let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((
