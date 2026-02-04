@@ -30,7 +30,10 @@ pub struct CycleCandidate {
 #[derive(Debug, Clone)]
 pub struct MinRatioOracle {
     pub seed: u64,
+    /// Deterministic mode disables randomized choices in tree and cycle sampling.
     pub deterministic: bool,
+    /// Optional deterministic seed used only for stable tie-breaking.
+    pub deterministic_seed: Option<u64>,
     pub rebuild_every: usize,
     pub last_rebuild: usize,
     pub tree: Option<LowStretchTree>,
@@ -45,6 +48,7 @@ impl MinRatioOracle {
         Self {
             seed,
             deterministic: false,
+            deterministic_seed: None,
             rebuild_every,
             last_rebuild: 0,
             tree: None,
@@ -55,9 +59,15 @@ impl MinRatioOracle {
         }
     }
 
-    pub fn new_with_mode(seed: u64, rebuild_every: usize, deterministic: bool) -> Self {
+    pub fn new_with_mode(
+        seed: u64,
+        rebuild_every: usize,
+        deterministic: bool,
+        deterministic_seed: Option<u64>,
+    ) -> Self {
         Self {
             deterministic,
+            deterministic_seed,
             ..Self::new(seed, rebuild_every)
         }
     }
@@ -84,13 +94,14 @@ impl MinRatioOracle {
         lengths: &[f64],
     ) -> Result<(), TreeError> {
         let tree = if self.deterministic {
+            let seed = self.deterministic_seed.unwrap_or(0);
             LowStretchTree::build_with_mode(
                 node_count,
                 tails,
                 heads,
                 lengths,
                 TreeBuildMode::Deterministic,
-                0,
+                seed,
             )?
         } else {
             LowStretchTree::build_with_mode(
@@ -457,7 +468,7 @@ mod tests {
         let heads = vec![1, 2, 2, 0];
         let gradients = vec![1.0, -3.0, 2.0, -1.0];
         let lengths = vec![2.0, 1.0, 4.0, 3.0];
-        let mut oracle = MinRatioOracle::new_with_mode(17, 1, true);
+        let mut oracle = MinRatioOracle::new_with_mode(17, 1, true, None);
         let best_first = oracle
             .best_cycle(OracleQuery {
                 iter: 0,

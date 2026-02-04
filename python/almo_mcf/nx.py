@@ -145,6 +145,7 @@ def min_cost_flow(
     max_iters: int | None = None,
     tolerance: float | None = None,
     seed: int | None = None,
+    deterministic_seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
     approx_factor: float | None = None,
@@ -162,6 +163,7 @@ def min_cost_flow(
         max_iters: Maximum IPM iterations.
         tolerance: Convergence tolerance.
         seed: Random seed for IPM oracles.
+        deterministic_seed: Optional deterministic seed for tie-breaking in deterministic mode.
         threads: Number of threads for solver execution.
         alpha: Optional override for the IPM barrier scaling constant.
         approx_factor: Approximation factor for the min-ratio cycle oracle.
@@ -196,6 +198,7 @@ def min_cost_flow(
             max_iters=max_iters,
             tolerance=tolerance,
             seed=seed,
+            deterministic_seed=deterministic_seed,
             threads=threads,
             alpha=alpha,
             force_cost_scaling=force_cost_scaling,
@@ -218,6 +221,7 @@ def min_cost_flow(
             max_iters=max_iters,
             tolerance=tolerance,
             seed=seed,
+            deterministic_seed=deterministic_seed,
             threads=threads,
             alpha=alpha,
             use_ipm=use_ipm,
@@ -265,6 +269,7 @@ def min_cost_flow_scaled(
     max_iters: int | None = None,
     tolerance: float | None = None,
     seed: int | None = None,
+    deterministic_seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
     approx_factor: float | None = None,
@@ -283,6 +288,7 @@ def min_cost_flow_scaled(
         max_iters=max_iters,
         tolerance=tolerance,
         seed=seed,
+        deterministic_seed=deterministic_seed,
         threads=threads,
         alpha=alpha,
         approx_factor=approx_factor,

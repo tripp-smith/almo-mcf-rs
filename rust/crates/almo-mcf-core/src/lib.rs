@@ -41,6 +41,8 @@ pub struct IpmSummary {
     pub final_gap: f64,
     pub termination: IpmTermination,
     pub oracle_mode: OracleMode,
+    pub deterministic_mode_used: bool,
+    pub seed_used: Option<u64>,
     pub rounding_performed: bool,
     pub rounding_success: bool,
     pub final_integer_cost: Option<i64>,
@@ -85,6 +87,7 @@ pub struct McfOptions {
     pub use_ipm: Option<bool>,
     pub approx_factor: f64,
     pub deterministic: bool,
+    pub deterministic_seed: Option<u64>,
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
     pub use_scaling: Option<bool>,
@@ -107,6 +110,7 @@ impl Default for McfOptions {
             use_ipm: None,
             approx_factor: 0.1,
             deterministic: true,
+            deterministic_seed: None,
             initial_flow: None,
             initial_perturbation: 0.0,
             use_scaling: None,
@@ -214,6 +218,7 @@ pub fn min_cost_flow_exact(
     let ipm_stats = Some(IpmSummary::from_ipm(
         &ipm_result.stats,
         ipm_result.termination,
+        opts,
     ));
 
     finalize_ipm_solution(problem, ipm_result, ipm_stats, opts)
@@ -371,12 +376,22 @@ fn solve_classic_with_mode(
 }
 
 impl IpmSummary {
-    pub(crate) fn from_ipm(stats: &IpmStats, termination: IpmTermination) -> Self {
+    pub(crate) fn from_ipm(
+        stats: &IpmStats,
+        termination: IpmTermination,
+        opts: &McfOptions,
+    ) -> Self {
         Self {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
             termination,
             oracle_mode: stats.oracle_mode,
+            deterministic_mode_used: opts.deterministic,
+            seed_used: if opts.deterministic {
+                opts.deterministic_seed
+            } else {
+                Some(opts.seed)
+            },
             rounding_performed: false,
             rounding_success: false,
             final_integer_cost: None,

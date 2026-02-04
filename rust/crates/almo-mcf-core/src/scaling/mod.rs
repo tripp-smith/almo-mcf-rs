@@ -73,6 +73,7 @@ pub fn solve_mcf_with_scaling(
     let ipm_stats = Some(IpmSummary::from_ipm(
         &ipm_result.stats,
         ipm_result.termination,
+        opts,
     ));
     let mut solution =
         finalize_ipm_solution(&capacity.scaled_problem, ipm_result, ipm_stats, opts)?;

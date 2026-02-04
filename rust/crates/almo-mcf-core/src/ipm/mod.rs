@@ -78,6 +78,7 @@ pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, Mc
 }
 
 pub fn run_ipm(problem: &McfProblem, opts: &McfOptions) -> Result<IpmResult, McfError> {
+    // Deterministic mode ensures tree, spanner, and oracle updates are reproducible.
     run_ipm_with_context(
         problem,
         opts,
@@ -143,11 +144,17 @@ pub(crate) fn run_ipm_with_lower_bound(
                 opts.seed,
                 fallback_rebuild_every,
                 opts.deterministic,
+                opts.deterministic_seed,
             ));
         }
         OracleMode::Dynamic => {
+            let dynamic_seed = if opts.deterministic {
+                opts.deterministic_seed.unwrap_or(0)
+            } else {
+                opts.seed
+            };
             dynamic_oracle = Some(FullDynamicOracle::new(
-                opts.seed,
+                dynamic_seed,
                 3,
                 1,
                 10,
@@ -160,9 +167,15 @@ pub(crate) fn run_ipm_with_lower_bound(
                 opts.seed,
                 fallback_rebuild_every,
                 opts.deterministic,
+                opts.deterministic_seed,
             ));
+            let dynamic_seed = if opts.deterministic {
+                opts.deterministic_seed.unwrap_or(0)
+            } else {
+                opts.seed
+            };
             dynamic_oracle = Some(FullDynamicOracle::new(
-                opts.seed,
+                dynamic_seed,
                 3,
                 1,
                 10,

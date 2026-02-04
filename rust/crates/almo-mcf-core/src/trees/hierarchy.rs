@@ -4,7 +4,7 @@ use crate::spanner::decremental::{
     ContractedGraph, DecrementalSpanner, DecrementalSpannerParams, LSForest,
 };
 use crate::trees::forest::DynamicForest;
-use crate::trees::lsst::{build_lsst, Tree};
+use crate::trees::lsst::{build_lsst, build_lsst_deterministic, Tree};
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 
 #[derive(Debug, Clone)]
@@ -211,15 +211,17 @@ impl BranchingTreeChain {
                 build_mode,
                 0,
             )?;
-            let forest = build_lsst(
-                &build_graph_from_edges(
-                    current_nodes,
-                    &current_tails,
-                    &current_heads,
-                    &current_lengths,
-                ),
-                1.1,
-            )?;
+            let forest_source = build_graph_from_edges(
+                current_nodes,
+                &current_tails,
+                &current_heads,
+                &current_lengths,
+            );
+            let forest = if config.deterministic {
+                build_lsst_deterministic(&forest_source, 1.1)?
+            } else {
+                build_lsst(&forest_source, 1.1)?
+            };
             let (core_graph, mapping, contracted) = contract_from_tree(
                 current_nodes,
                 &current_tails,

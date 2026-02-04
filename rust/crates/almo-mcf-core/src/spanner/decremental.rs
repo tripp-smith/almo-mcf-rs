@@ -608,7 +608,11 @@ fn expander_decomposition(
             if size >= target {
                 break;
             }
-            for &edge_id in &adjacency[node] {
+            let mut neighbors = adjacency[node].clone();
+            if deterministic {
+                neighbors.sort_by_key(|&edge_id| ordered_pair(edges[edge_id].u, edges[edge_id].v));
+            }
+            for &edge_id in &neighbors {
                 let Some(edge) = edges.get(edge_id) else {
                     continue;
                 };
@@ -643,11 +647,14 @@ fn sparsify_layer(
     let mut sparse_adjacency = vec![Vec::new(); node_count];
     let mut seen = HashSet::new();
     for (_, neighbors) in adjacency.iter().enumerate().take(node_count) {
-        let mut neighbors: Vec<usize> = neighbors.clone();
-        if !deterministic {
-            neighbors.reverse();
+        let mut ordered_neighbors: Vec<usize> = neighbors.clone();
+        if deterministic {
+            ordered_neighbors
+                .sort_by_key(|&edge_id| ordered_pair(edges[edge_id].u, edges[edge_id].v));
+        } else {
+            ordered_neighbors.reverse();
         }
-        for &edge_id in neighbors.iter().take(2) {
+        for &edge_id in ordered_neighbors.iter().take(2) {
             if seen.insert(edge_id) {
                 sparse_edges.push(edge_id);
             }
@@ -667,7 +674,10 @@ fn sparsify_layer(
 
     // ensure connectivity within clusters by adding one edge per cluster if missing
     let mut cluster_seen = HashSet::new();
-    for (edge_id, edge) in edges.iter().enumerate() {
+    let mut edge_ids: Vec<usize> = (0..edges.len()).collect();
+    edge_ids.sort_by_key(|&edge_id| ordered_pair(edges[edge_id].u, edges[edge_id].v));
+    for edge_id in edge_ids {
+        let edge = &edges[edge_id];
         if !edge.active {
             continue;
         }

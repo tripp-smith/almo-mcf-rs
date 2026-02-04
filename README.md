@@ -115,6 +115,14 @@ original randomized behavior (useful for performance comparisons), set
 `deterministic=False` on solver calls such as `min_cost_flow` or the extension
 reducers like `min_cost_flow_convex` and `max_flow_via_min_cost_circulation`.
 
+When deterministic mode is enabled, the solver uses stable tie-breaking on edge
+and node IDs, deterministic sparsification, and lexicographically smallest path
+embeddings. You can optionally provide `deterministic_seed` to influence
+tie-breaking hashes for debugging; this does **not** enable random sampling. The
+stats dictionary returned with `return_stats=True` includes
+`deterministic_mode_used` and `seed_used` so you can log reproducibility
+metadata.
+
 ### Extensions (convex costs, max-flow, isotonic regression)
 
 ```python

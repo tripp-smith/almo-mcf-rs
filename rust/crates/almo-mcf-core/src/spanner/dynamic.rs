@@ -215,6 +215,7 @@ impl Spanner {
                 &self.levels[level].edges,
                 &self.levels[level].adjacency,
                 target,
+                self.config.deterministic,
             );
             let size_bound = self.level_size_bound(node_count);
             let (new_sparse, new_sparse_adj) = sparsify_level(
@@ -223,6 +224,8 @@ impl Spanner {
                 &self.levels[level].adjacency,
                 &new_cluster,
                 size_bound,
+                self.config.deterministic,
+                self.config.deterministic_seed,
             );
             let changed = count_edge_changes(&self.levels[level].sparse_edges, &new_sparse);
             self.recourse_this_batch = self.recourse_this_batch.saturating_add(changed);
