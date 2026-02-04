@@ -90,6 +90,23 @@ pub fn solve_mcf_with_scaling(
             .checked_mul(capacity.scale_factor as i128)
             .ok_or_else(|| McfError::InvalidInput("cost scaling overflow".to_string()))?;
     }
+    let mut min_residual = f64::INFINITY;
+    for ((&flow, &lower), &upper) in solution
+        .flow
+        .iter()
+        .zip(problem.lower.iter())
+        .zip(problem.upper.iter())
+    {
+        let upper_delta = (upper - flow) as f64;
+        let lower_delta = (flow - lower) as f64;
+        min_residual = min_residual.min(upper_delta.min(lower_delta));
+    }
+    if min_residual < opts.residual_min {
+        eprintln!(
+            "warning: min residual ({:.3e}) below residual_min ({:.3e}) after unscaling",
+            min_residual, opts.residual_min
+        );
+    }
 
     Ok(solution)
 }

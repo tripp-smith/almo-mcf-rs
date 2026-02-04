@@ -2,6 +2,7 @@ use crate::graph::min_cost_flow::MinCostFlow;
 use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::oracle::{DynamicUpdateOracle, SparseFlowDelta};
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
+use crate::numerics::barrier::BarrierClampStats;
 use crate::{McfError, McfOptions, McfProblem, OracleMode, Strategy};
 use std::time::Instant;
 
@@ -31,6 +32,7 @@ pub struct IpmStats {
     pub rebuild_counts: Vec<usize>,
     pub oracle_update_count: usize,
     pub oracle_fallback_count: usize,
+    pub barrier_clamp_stats: Vec<BarrierClampStats>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +105,19 @@ pub fn run_ipm_with_context(
         IpmRunKind::CostScaling | IpmRunKind::CapacityScaling
     ) {
         adjusted_opts.tolerance = (adjusted_opts.tolerance * 10.0).max(1e-8);
+        let max_u = problem
+            .upper
+            .iter()
+            .map(|&value| (value as f64).abs())
+            .fold(1.0_f64, f64::max);
+        let max_c = problem
+            .cost
+            .iter()
+            .map(|&value| (value as f64).abs())
+            .fold(1.0_f64, f64::max);
+        let scale_factor = max_u.max(max_c).log10().ceil().max(1.0);
+        adjusted_opts.numerical_clamp_log =
+            (adjusted_opts.numerical_clamp_log - scale_factor * 10.0).max(100.0);
     }
 
     let bounds = CostBounds::new(problem)?;
@@ -128,8 +143,15 @@ pub(crate) fn run_ipm_with_lower_bound(
     let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
     let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
     let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
-    let potential =
-        Potential::new_with_lower_bound(&upper, opts.alpha, None, opts.threads, cost_lower_bound);
+    let clamp_config = opts.barrier_clamp_config();
+    let potential = Potential::new_with_lower_bound(
+        &upper,
+        opts.alpha,
+        None,
+        opts.threads,
+        cost_lower_bound,
+        clamp_config,
+    );
     let termination_target = potential.termination_target();
 
     let mut fallback_oracle = None;
@@ -203,6 +225,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         rebuild_counts: Vec::new(),
         oracle_update_count: 0,
         oracle_fallback_count: 0,
+        barrier_clamp_stats: Vec::new(),
     };
     let mut termination = IpmTermination::IterationLimit;
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
@@ -220,12 +243,21 @@ pub(crate) fn run_ipm_with_lower_bound(
         }
 
         let barrier_start = Instant::now();
-        let (gradient, lengths, residuals) =
+        let (gradient, lengths, residuals, clamp_stats) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
         stats
             .barrier_times_ms
             .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
-        let current_potential = potential.value_with_residuals(&cost, &flow, &residuals);
+        if opts.log_numerical_clamping && clamp_stats.clamping_occurred() {
+            eprintln!(
+                "warning: numerical clamping occurred (total_clamps={}) at iter {}",
+                clamp_stats.total_clamps(),
+                iter
+            );
+        }
+        stats.barrier_clamp_stats.push(clamp_stats.clone());
+        let current_potential =
+            potential.value_with_residuals_and_stats(&cost, &flow, &residuals, None);
         stats.potentials.push(current_potential);
         stats.last_gap = potential.duality_gap(&cost, &flow, &residuals);
         if matches!(opts.oracle_mode, OracleMode::Hybrid) && !using_fallback {
@@ -383,11 +415,12 @@ pub(crate) fn run_ipm_with_lower_bound(
                 }
 
                 let barrier_start = Instant::now();
-                let (new_gradient, new_lengths, _) =
+                let (new_gradient, new_lengths, _, clamp_stats) =
                     compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
                 stats
                     .barrier_times_ms
                     .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
+                stats.barrier_clamp_stats.push(clamp_stats);
                 let mut g_updates = Vec::new();
                 let mut ell_updates = Vec::new();
                 for (edge_id, (&g_new, &l_new)) in
@@ -432,8 +465,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         stats.iterations = iter + 1;
     }
 
-    let (_final_gradient, _, final_residuals) =
+    let (_final_gradient, _, final_residuals, clamp_stats) =
         compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+    stats.barrier_clamp_stats.push(clamp_stats);
     stats.last_gap = potential.duality_gap(&cost, &flow, &final_residuals);
 
     Ok(IpmResult {
@@ -449,11 +483,19 @@ fn compute_gradient_and_lengths(
     flow: &[f64],
     lower: &[f64],
     upper: &[f64],
-) -> (Vec<f64>, Vec<f64>, Residuals) {
-    let residuals = Residuals::new(flow, lower, upper, potential.min_delta);
-    let gradient = potential.gradient_with_residuals(cost, flow, &residuals);
-    let lengths = potential.lengths_from_gradient(&gradient);
-    (gradient, lengths, residuals)
+) -> (Vec<f64>, Vec<f64>, Residuals, BarrierClampStats) {
+    let mut clamp_stats = BarrierClampStats::default();
+    let residuals = Residuals::new_with_stats(
+        flow,
+        lower,
+        upper,
+        potential.min_delta,
+        Some(&mut clamp_stats),
+    );
+    let gradient =
+        potential.gradient_with_residuals_and_stats(cost, flow, &residuals, Some(&mut clamp_stats));
+    let lengths = potential.lengths_from_gradient_with_stats(&gradient, Some(&mut clamp_stats));
+    (gradient, lengths, residuals, clamp_stats)
 }
 
 fn flow_cost(flow: &[f64], cost: &[i64]) -> f64 {
@@ -997,9 +1039,14 @@ mod tests {
         let lower: Vec<f64> = problem.lower.iter().map(|&v| v as f64).collect();
         let upper: Vec<f64> = problem.upper.iter().map(|&v| v as f64).collect();
         let cost: Vec<f64> = problem.cost.iter().map(|&v| v as f64).collect();
-        let potential = Potential::new(&upper, None, 1);
+        let potential = Potential::new(
+            &upper,
+            None,
+            1,
+            McfOptions::default().barrier_clamp_config(),
+        );
 
-        let (gradient, lengths, _residuals) =
+        let (gradient, lengths, _residuals, _clamp_stats) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
         let mut oracle = MinRatioOracle::new(3, 1);
         let best = oracle

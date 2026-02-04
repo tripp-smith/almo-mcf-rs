@@ -144,6 +144,13 @@ def min_cost_flow(
     rebuild_every: int | None = None,
     max_iters: int | None = None,
     tolerance: float | None = None,
+    numerical_clamp_log: float | None = None,
+    residual_min: float | None = None,
+    barrier_alpha_min: float | None = None,
+    barrier_alpha_max: float | None = None,
+    barrier_clamp_max: float | None = None,
+    gradient_clamp_max: float | None = None,
+    log_numerical_clamping: bool | None = None,
     seed: int | None = None,
     deterministic_seed: int | None = None,
     threads: int | None = None,
@@ -162,6 +169,13 @@ def min_cost_flow(
         rebuild_every: Rebuild cadence for periodic rebuild strategy.
         max_iters: Maximum IPM iterations.
         tolerance: Convergence tolerance.
+        numerical_clamp_log: Max exponent magnitude before clamping (default ~700).
+        residual_min: Minimum residual slack treated as positive for barriers.
+        barrier_alpha_min: Minimum barrier alpha used for clamping.
+        barrier_alpha_max: Maximum barrier alpha used for clamping.
+        barrier_clamp_max: Maximum value for barrier terms.
+        gradient_clamp_max: Maximum magnitude for gradient terms.
+        log_numerical_clamping: When True, log numerical clamping counts per iteration.
         seed: Random seed for IPM oracles.
         deterministic_seed: Optional deterministic seed for tie-breaking in deterministic mode.
         threads: Number of threads for solver execution.
@@ -197,6 +211,13 @@ def min_cost_flow(
             rebuild_every=rebuild_every,
             max_iters=max_iters,
             tolerance=tolerance,
+            numerical_clamp_log=numerical_clamp_log,
+            residual_min=residual_min,
+            barrier_alpha_min=barrier_alpha_min,
+            barrier_alpha_max=barrier_alpha_max,
+            barrier_clamp_max=barrier_clamp_max,
+            gradient_clamp_max=gradient_clamp_max,
+            log_numerical_clamping=log_numerical_clamping,
             seed=seed,
             deterministic_seed=deterministic_seed,
             threads=threads,
@@ -220,6 +241,13 @@ def min_cost_flow(
             rebuild_every=rebuild_every,
             max_iters=max_iters,
             tolerance=tolerance,
+            numerical_clamp_log=numerical_clamp_log,
+            residual_min=residual_min,
+            barrier_alpha_min=barrier_alpha_min,
+            barrier_alpha_max=barrier_alpha_max,
+            barrier_clamp_max=barrier_clamp_max,
+            gradient_clamp_max=gradient_clamp_max,
+            log_numerical_clamping=log_numerical_clamping,
             seed=seed,
             deterministic_seed=deterministic_seed,
             threads=threads,
@@ -268,6 +296,13 @@ def min_cost_flow_scaled(
     rebuild_every: int | None = None,
     max_iters: int | None = None,
     tolerance: float | None = None,
+    numerical_clamp_log: float | None = None,
+    residual_min: float | None = None,
+    barrier_alpha_min: float | None = None,
+    barrier_alpha_max: float | None = None,
+    barrier_clamp_max: float | None = None,
+    gradient_clamp_max: float | None = None,
+    log_numerical_clamping: bool | None = None,
     seed: int | None = None,
     deterministic_seed: int | None = None,
     threads: int | None = None,
@@ -287,6 +322,13 @@ def min_cost_flow_scaled(
         rebuild_every=rebuild_every,
         max_iters=max_iters,
         tolerance=tolerance,
+        numerical_clamp_log=numerical_clamp_log,
+        residual_min=residual_min,
+        barrier_alpha_min=barrier_alpha_min,
+        barrier_alpha_max=barrier_alpha_max,
+        barrier_clamp_max=barrier_clamp_max,
+        gradient_clamp_max=gradient_clamp_max,
+        log_numerical_clamping=log_numerical_clamping,
         seed=seed,
         deterministic_seed=deterministic_seed,
         threads=threads,

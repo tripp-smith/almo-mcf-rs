@@ -53,6 +53,9 @@ pub struct IpmSummary {
     pub cycles_canceled: usize,
     pub rounding_adjustment_cost: Option<i64>,
     pub is_exact_optimal: bool,
+    pub numerical_clamping_occurred: bool,
+    pub max_barrier_value: f64,
+    pub min_residual_seen: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +100,13 @@ pub struct McfOptions {
     pub force_cost_scaling: bool,
     pub disable_capacity_scaling: bool,
     pub use_rounding: Option<bool>,
+    pub numerical_clamp_log: f64,
+    pub residual_min: f64,
+    pub barrier_alpha_min: f64,
+    pub barrier_alpha_max: f64,
+    pub barrier_clamp_max: f64,
+    pub gradient_clamp_max: f64,
+    pub log_numerical_clamping: bool,
 }
 
 impl Default for McfOptions {
@@ -120,6 +130,27 @@ impl Default for McfOptions {
             force_cost_scaling: false,
             disable_capacity_scaling: false,
             use_rounding: None,
+            numerical_clamp_log: numerics::barrier::DEFAULT_MAX_LOG,
+            residual_min: numerics::barrier::RESIDUAL_MIN,
+            barrier_alpha_min: numerics::barrier::BARRIER_ALPHA_MIN,
+            barrier_alpha_max: numerics::barrier::BARRIER_ALPHA_MAX,
+            barrier_clamp_max: numerics::barrier::BARRIER_CLAMP_MAX,
+            gradient_clamp_max: numerics::barrier::GRADIENT_CLAMP_MAX,
+            log_numerical_clamping: false,
+        }
+    }
+}
+
+impl McfOptions {
+    pub fn barrier_clamp_config(&self) -> numerics::barrier::BarrierClampConfig {
+        numerics::barrier::BarrierClampConfig {
+            max_log: self.numerical_clamp_log,
+            min_x: numerics::barrier::MIN_POSITIVE,
+            residual_min: self.residual_min,
+            barrier_clamp_max: self.barrier_clamp_max,
+            gradient_clamp_max: self.gradient_clamp_max,
+            alpha_min: self.barrier_alpha_min,
+            alpha_max: self.barrier_alpha_max,
         }
     }
 }
@@ -417,6 +448,10 @@ impl IpmSummary {
         termination: IpmTermination,
         opts: &McfOptions,
     ) -> Self {
+        let mut aggregate = numerics::barrier::BarrierClampStats::default();
+        for item in &stats.barrier_clamp_stats {
+            aggregate.merge(item);
+        }
         Self {
             iterations: stats.iterations,
             final_gap: stats.last_gap,
@@ -438,6 +473,9 @@ impl IpmSummary {
             cycles_canceled: 0,
             rounding_adjustment_cost: None,
             is_exact_optimal: false,
+            numerical_clamping_occurred: aggregate.clamping_occurred(),
+            max_barrier_value: aggregate.max_barrier_value,
+            min_residual_seen: aggregate.min_residual_seen,
         }
     }
 }

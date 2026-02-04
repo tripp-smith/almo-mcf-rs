@@ -10,6 +10,11 @@ Example:
     >>> flow = min_cost_flow(graph)
     >>> min_cost_flow_cost(graph, flow)
     2
+
+Numerical tuning:
+    The `min_cost_flow` entrypoint accepts parameters like `tolerance`,
+    `numerical_clamp_log`, and `residual_min` to guard IPM barrier computations
+    on extreme instances.
 """
 
 from ._version import __version__

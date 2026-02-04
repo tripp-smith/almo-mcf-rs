@@ -107,6 +107,13 @@ enables capacity/cost scaling to keep the IPM rounds within polynomial bounds.
 You can override this behavior via `use_scaling=True` or
 `use_scaling=False`, or call the explicit helper `min_cost_flow_scaled`.
 
+For numerically extreme instances (very small residual slacks or huge
+U/C bounds), the Python API exposes clamp controls such as
+`numerical_clamp_log`, `residual_min`, and `barrier_clamp_max`. These guard the
+barrier and gradient computations against overflow/underflow. When experimenting
+with research-grade settings, enable `log_numerical_clamping=True` to see how
+often the solver clamps values.
+
 ### Deterministic vs. randomized solver behavior
 
 Deterministic mode is enabled by default, which fixes the min-ratio cycle updates
