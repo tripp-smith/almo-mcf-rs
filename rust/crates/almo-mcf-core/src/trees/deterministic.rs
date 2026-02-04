@@ -1,10 +1,7 @@
 use std::collections::HashSet;
 
-use rand::SeedableRng;
-use rand::{rngs::StdRng, Rng};
-
 use crate::graph::{Graph, NodeId};
-use crate::trees::lsst::{build_lsst, Tree};
+use crate::trees::lsst::{build_lsst_deterministic, estimate_average_stretch_deterministic, Tree};
 use crate::trees::TreeError;
 
 #[derive(Debug, Clone)]
@@ -75,10 +72,10 @@ impl Shifter {
             }
         }
         if dirty {
-            let estimated = crate::trees::lsst::estimate_average_stretch(graph, &forest.trees, 32)?;
+            let estimated = estimate_average_stretch_deterministic(graph, &forest.trees, 32)?;
             if estimated > self.stretch_threshold {
                 let rebuilt = Forest {
-                    trees: build_lsst(graph, 1.1)?,
+                    trees: build_lsst_deterministic(graph, 1.1)?,
                 };
                 self.forests[idx] = rebuilt;
             }
@@ -98,7 +95,7 @@ pub fn precompute_forests(graph: &Graph, s: usize) -> Result<Vec<Forest>, TreeEr
     let mut forests = Vec::with_capacity(s);
     for group in &groups {
         let subgraph = induced_subgraph(graph, group);
-        let trees = build_lsst(&subgraph, 1.1)?;
+        let trees = build_lsst_deterministic(&subgraph, 1.1)?;
         forests.push(Forest { trees });
     }
     Ok(forests)
@@ -130,14 +127,14 @@ pub fn build_deterministic_forests(
     s: usize,
     per_group: usize,
 ) -> Result<Vec<Forest>, TreeError> {
-    let mut rng = StdRng::seed_from_u64(0xdec0_de00_u64);
     let base = precompute_forests(graph, s)?;
     let mut expanded = Vec::with_capacity(s);
-    for forest in base {
+    for (group_idx, forest) in base.into_iter().enumerate() {
         let mut trees = forest.trees;
         while trees.len() < per_group.max(1) {
-            let gamma = 1.0 + rng.gen::<f64>() * 0.05;
-            let more = build_lsst(graph, gamma)?;
+            let idx = trees.len();
+            let gamma = 1.0 + 0.01 * ((idx + group_idx + 1) as f64);
+            let more = build_lsst_deterministic(graph, gamma)?;
             trees.extend(more);
         }
         expanded.push(Forest { trees });

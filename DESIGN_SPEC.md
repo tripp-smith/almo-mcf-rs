@@ -1179,6 +1179,15 @@ Near-bound flows.
 
 ---
 
+# Deterministic execution
+
+Deterministic mode enforces stable choices across randomized components so that
+the same input graph yields identical tree hierarchies, spanner embeddings, and
+cycle sequences across runs. Deterministic paths avoid RNG usage and instead
+apply stable ordering with explicit tie-breaking on edge/node identifiers. An
+optional deterministic seed may be supplied for debug-only tie-breaking hashes,
+but it never enables sampling that affects correctness.
+
 # Definition of Done (global)
 
 The project is “done” when:

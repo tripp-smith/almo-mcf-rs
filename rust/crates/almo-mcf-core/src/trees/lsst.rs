@@ -1,6 +1,3 @@
-use rand::prelude::SliceRandom;
-use rand::{Rng, SeedableRng};
-
 use crate::graph::{EdgeId, Graph, NodeId};
 use crate::trees::{TreeError, UnionFind};
 
@@ -286,13 +283,12 @@ pub fn build_lsst(graph: &Graph, gamma: f64) -> Result<Vec<Tree>, TreeError> {
         return Ok(vec![tree]);
     }
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0x5eed_cafe_u64);
     let rounds = ((node_count as f64).ln().ceil() as usize).max(1);
     let mut weights = vec![1.0_f64; edge_count];
     let mut trees = Vec::with_capacity(rounds);
 
     for _ in 0..rounds {
-        let tree_edges = randomized_mst(node_count, &tails, &heads, &lengths, &weights, &mut rng);
+        let tree_edges = randomized_mst(node_count, &tails, &heads, &lengths, &weights);
         let tree = Tree::build_from_tree_edges(
             node_count,
             tails.clone(),
@@ -314,6 +310,52 @@ pub fn build_lsst(graph: &Graph, gamma: f64) -> Result<Vec<Tree>, TreeError> {
     Ok(trees)
 }
 
+/// Deterministic low-stretch tree sampling with stable tie-breaking.
+pub fn build_lsst_deterministic(graph: &Graph, gamma: f64) -> Result<Vec<Tree>, TreeError> {
+    let node_count = graph.node_count();
+    if node_count == 0 {
+        return Err(TreeError::EmptyGraph);
+    }
+
+    let (tails, heads, lengths) = symmetrized_edges(graph);
+    let edge_count = tails.len();
+    if edge_count == 0 {
+        let tree = Tree::build_from_tree_edges(
+            node_count,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )?;
+        return Ok(vec![tree]);
+    }
+
+    let rounds = ((node_count as f64).ln().ceil() as usize).max(1);
+    let mut weights = vec![1.0_f64; edge_count];
+    let mut trees = Vec::with_capacity(rounds);
+    for round in 0..rounds {
+        let tree_edges =
+            deterministic_mst(node_count, &tails, &heads, &lengths, &weights, round as u64);
+        let tree = Tree::build_from_tree_edges(
+            node_count,
+            tails.clone(),
+            heads.clone(),
+            lengths.clone(),
+            tree_edges.clone(),
+        )?;
+        update_weights(
+            node_count,
+            &tails,
+            &heads,
+            &tree_edges,
+            gamma.max(0.0),
+            &mut weights,
+        );
+        trees.push(tree);
+    }
+    Ok(trees)
+}
+
 pub fn estimate_average_stretch(
     graph: &Graph,
     forest: &[Tree],
@@ -327,15 +369,60 @@ pub fn estimate_average_stretch(
         return Ok(f64::INFINITY);
     }
     let adjacency = build_weighted_adjacency(graph);
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0x0051_ab1e_u64);
     let mut stretch_sum = 0.0;
     let mut stretch_count = 0.0;
 
-    for _ in 0..samples.max(1) {
-        let u = rng.gen_range(0..node_count);
-        let v = rng.gen_range(0..node_count);
+    for idx in 0..samples.max(1) {
+        let u = (idx * 7 + 1) % node_count;
+        let v = (idx * 11 + 3) % node_count;
         if u == v {
             continue;
+        }
+        let graph_dist = dijkstra_distance(&adjacency, u, v)?;
+        if !graph_dist.is_finite() || graph_dist <= 0.0 {
+            continue;
+        }
+        let mut tree_dist = 0.0;
+        for tree in forest {
+            if let Some(dist) = tree.path_length(u, v) {
+                tree_dist += dist;
+            } else {
+                tree_dist += graph_dist;
+            }
+        }
+        let avg_tree_dist = tree_dist / forest.len() as f64;
+        stretch_sum += avg_tree_dist / graph_dist;
+        stretch_count += 1.0;
+    }
+
+    if stretch_count == 0.0 {
+        Ok(f64::INFINITY)
+    } else {
+        Ok(stretch_sum / stretch_count)
+    }
+}
+
+pub fn estimate_average_stretch_deterministic(
+    graph: &Graph,
+    forest: &[Tree],
+    samples: usize,
+) -> Result<f64, TreeError> {
+    let node_count = graph.node_count();
+    if node_count == 0 {
+        return Err(TreeError::EmptyGraph);
+    }
+    if forest.is_empty() {
+        return Ok(f64::INFINITY);
+    }
+    let adjacency = build_weighted_adjacency(graph);
+    let mut stretch_sum = 0.0;
+    let mut stretch_count = 0.0;
+    let samples = samples.max(1);
+    for idx in 0..samples {
+        let u = (idx * 17 + 1) % node_count;
+        let mut v = (idx * 29 + 5) % node_count;
+        if u == v {
+            v = (v + 1) % node_count;
         }
         let graph_dist = dijkstra_distance(&adjacency, u, v)?;
         if !graph_dist.is_finite() || graph_dist <= 0.0 {
@@ -367,15 +454,13 @@ fn randomized_mst(
     heads: &[u32],
     lengths: &[f64],
     weights: &[f64],
-    rng: &mut rand::rngs::StdRng,
 ) -> Vec<bool> {
     let edge_count = tails.len();
     let mut edge_ids: Vec<usize> = (0..edge_count).collect();
-    edge_ids.shuffle(rng);
     let mut scores = Vec::with_capacity(edge_count);
     for edge_id in 0..edge_count {
         let w = weights[edge_id].max(1e-12_f64);
-        let jitter = 1.0 + rng.gen::<f64>() * 1e-3;
+        let jitter = 1.0 + 1e-3 * deterministic_unit_f64(0x5eed_cafe_u64 ^ edge_id as u64);
         scores.push(lengths[edge_id].abs() / w * jitter);
     }
     edge_ids.sort_by(|&a, &b| scores[a].total_cmp(&scores[b]));
@@ -390,6 +475,57 @@ fn randomized_mst(
         }
     }
     tree_edges
+}
+
+fn deterministic_mst(
+    node_count: usize,
+    tails: &[u32],
+    heads: &[u32],
+    lengths: &[f64],
+    weights: &[f64],
+    seed: u64,
+) -> Vec<bool> {
+    let edge_count = tails.len();
+    let mut edge_ids: Vec<usize> = (0..edge_count).collect();
+    let mut scores = Vec::with_capacity(edge_count);
+    for edge_id in 0..edge_count {
+        let w = weights[edge_id].max(1e-12_f64);
+        let score = lengths[edge_id].abs() / w;
+        let hash = splitmix64(seed ^ edge_id as u64);
+        scores.push((score, hash));
+    }
+    edge_ids.sort_by(|&a, &b| {
+        let cmp = scores[a].0.total_cmp(&scores[b].0);
+        if cmp == std::cmp::Ordering::Equal {
+            scores[a].1.cmp(&scores[b].1)
+        } else {
+            cmp
+        }
+    });
+
+    let mut uf = UnionFind::new(node_count);
+    let mut tree_edges = vec![false; edge_count];
+    for edge_id in edge_ids {
+        let u = tails[edge_id] as usize;
+        let v = heads[edge_id] as usize;
+        if uf.union(u, v) {
+            tree_edges[edge_id] = true;
+        }
+    }
+    tree_edges
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e3779b97f4a7c15);
+    let mut z = value;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
+}
+
+fn deterministic_unit_f64(seed: u64) -> f64 {
+    let bits = splitmix64(seed) >> 11;
+    (bits as f64) * (1.0 / ((1u64 << 53) as f64))
 }
 
 fn update_weights(

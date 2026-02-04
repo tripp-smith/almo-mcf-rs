@@ -31,6 +31,7 @@ pub enum TreeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TreeBuildMode {
     Randomized,
+    /// Deterministic mode uses stable, tie-broken edge ordering for reproducible trees.
     Deterministic,
 }
 
@@ -348,6 +349,7 @@ impl LowStretchTree {
         heads: &[u32],
         lengths: &[f64],
     ) -> Result<Self, TreeError> {
+        // Deterministic: same input graph => identical tree edges and hierarchy.
         Self::build_low_stretch_with_mode(
             node_count,
             tails,
@@ -390,7 +392,9 @@ impl LowStretchTree {
                         .partial_cmp(&lengths[b])
                         .unwrap_or(std::cmp::Ordering::Equal);
                     if len_cmp == std::cmp::Ordering::Equal {
-                        a.cmp(&b)
+                        let hash_a = deterministic_hash(seed, a as u64);
+                        let hash_b = deterministic_hash(seed, b as u64);
+                        hash_a.cmp(&hash_b)
                     } else {
                         len_cmp
                     }
@@ -601,6 +605,13 @@ impl LowStretchTree {
             Some(total / count)
         }
     }
+}
+
+fn deterministic_hash(seed: u64, value: u64) -> u64 {
+    let mut x = value ^ seed.wrapping_add(0x9e3779b97f4a7c15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+    x ^ (x >> 31)
 }
 
 fn edge_direction(from: usize, to: usize, edge_id: usize, tails: &[u32], heads: &[u32]) -> i8 {

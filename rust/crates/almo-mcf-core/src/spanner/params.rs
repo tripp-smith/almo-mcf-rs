@@ -12,6 +12,10 @@ pub struct SpannerConfig {
     pub epsilon: f64,
     pub l: usize,
     pub level_count: usize,
+    /// When true, enforce deterministic sparsification and clustering.
+    pub deterministic: bool,
+    /// Optional deterministic seed for tie-breaking hashes.
+    pub deterministic_seed: Option<u64>,
 }
 
 impl SpannerConfig {
@@ -30,6 +34,8 @@ impl SpannerConfig {
         let congestion_bound = log_n.max(1.0);
         let path_length_bound = log_n.max(1.0);
         let recourse_per_batch = n.powf(1.0 / (l as f64));
+        let deterministic = opts.map(|options| options.deterministic).unwrap_or(false);
+        let deterministic_seed = opts.and_then(|options| options.deterministic_seed);
         Self {
             stretch,
             size_bound: size_bound.max(1),
@@ -39,6 +45,8 @@ impl SpannerConfig {
             epsilon,
             l,
             level_count,
+            deterministic,
+            deterministic_seed,
         }
     }
 

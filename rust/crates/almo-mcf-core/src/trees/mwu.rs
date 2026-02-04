@@ -1,7 +1,4 @@
-use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
-
-use crate::trees::{LowStretchTree, TreeBuildMode, TreeError, UnionFind, XorShift64};
+use crate::trees::{LowStretchTree, TreeBuildMode, TreeError, UnionFind};
 
 #[derive(Debug, Clone, Copy)]
 pub struct MwuConfig {
@@ -41,18 +38,16 @@ pub fn sample_weighted_trees(
 
     let edge_count = tails.len();
     let mut weights: Vec<f64> = vec![1.0; edge_count];
-    let mut rng = rand::rngs::StdRng::seed_from_u64(config.seed);
     let mut trees = Vec::with_capacity(samples);
 
     for sample_idx in 0..samples.max(1) {
         for _ in 0..config.iterations.max(1) {
             let mut edge_ids: Vec<usize> = (0..edge_count).collect();
-            edge_ids.shuffle(&mut rng);
             edge_ids.sort_by(|&a, &b| {
                 let wa = weights[a].max(1e-12_f64);
                 let wb = weights[b].max(1e-12_f64);
-                let score_a = lengths[a].abs() / wa * (1.0 + rng.gen::<f64>() * 0.01);
-                let score_b = lengths[b].abs() / wb * (1.0 + rng.gen::<f64>() * 0.01);
+                let score_a = lengths[a].abs() / wa;
+                let score_b = lengths[b].abs() / wb;
                 score_a
                     .partial_cmp(&score_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -141,12 +136,10 @@ pub fn deterministic_weighted_tree(
         return Err(TreeError::MissingEdgeLengths);
     }
     let mut edge_ids: Vec<usize> = (0..tails.len()).collect();
-    let mut rng = XorShift64::new(0x1234_5678_9abc_def0);
     let mut scores = Vec::with_capacity(edge_ids.len());
     for edge_id in 0..edge_ids.len() {
         let w = weights[edge_id].max(1e-12_f64);
-        let jitter = 1.0 + 1e-6 * rng.next_f64();
-        scores.push(lengths[edge_id].abs() / w * jitter);
+        scores.push(lengths[edge_id].abs() / w);
     }
     edge_ids.sort_by(|&a, &b| scores[a].total_cmp(&scores[b]));
     let mut uf = UnionFind::new(node_count);

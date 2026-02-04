@@ -112,6 +112,7 @@ def min_cost_flow_edges_with_options(
     max_iters: int | None = None,
     tolerance: float | None = None,
     seed: int | None = None,
+    deterministic_seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
     use_ipm: bool | None = None,
@@ -128,6 +129,7 @@ def min_cost_flow_edges_with_options(
         max_iters,
         tolerance,
         seed,
+        deterministic_seed,
         threads,
         alpha,
         use_ipm,
@@ -140,6 +142,8 @@ def min_cost_flow_edges_with_options(
         "iterations": 0,
         "final_gap": 0.0,
         "termination": "classic",
+        "deterministic_mode_used": bool(deterministic) if deterministic is not None else True,
+        "seed_used": deterministic_seed if deterministic else seed,
     }
     return flows, stats
 
@@ -158,6 +162,7 @@ def run_ipm_edges(
     max_iters: int | None = None,
     tolerance: float | None = None,
     seed: int | None = None,
+    deterministic_seed: int | None = None,
     threads: int | None = None,
     alpha: float | None = None,
     use_ipm: bool | None = None,
@@ -171,6 +176,7 @@ def run_ipm_edges(
         max_iters,
         tolerance,
         seed,
+        deterministic_seed,
         threads,
         alpha,
         use_ipm,
@@ -183,5 +189,7 @@ def run_ipm_edges(
         "iterations": 0,
         "final_gap": 0.0,
         "termination": "fallback",
+        "deterministic_mode_used": bool(deterministic) if deterministic is not None else True,
+        "seed_used": deterministic_seed if deterministic else seed,
     }
     return flows, stats

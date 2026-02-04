@@ -68,6 +68,7 @@ fn build_options(
     max_iters: Option<usize>,
     tolerance: Option<f64>,
     seed: Option<u64>,
+    deterministic_seed: Option<u64>,
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
@@ -86,6 +87,9 @@ fn build_options(
     }
     if let Some(value) = seed {
         opts.seed = value;
+    }
+    if let Some(value) = deterministic_seed {
+        opts.deterministic_seed = Some(value);
     }
     if let Some(value) = threads {
         opts.threads = value;
@@ -200,6 +204,8 @@ fn stats_to_dict(
         dict.set_item("cycles_canceled", summary.cycles_canceled)?;
         dict.set_item("rounding_adjustment_cost", summary.rounding_adjustment_cost)?;
         dict.set_item("is_exact_optimal", summary.is_exact_optimal)?;
+        dict.set_item("deterministic_mode_used", summary.deterministic_mode_used)?;
+        dict.set_item("seed_used", summary.seed_used)?;
     }
     Ok(dict.to_object(py))
 }
@@ -240,6 +246,7 @@ fn min_cost_flow_edges(
     max_iters = None,
     tolerance = None,
     seed = None,
+    deterministic_seed = None,
     threads = None,
     alpha = None,
     use_ipm = None,
@@ -264,6 +271,7 @@ fn min_cost_flow_edges_with_options(
     max_iters: Option<usize>,
     tolerance: Option<f64>,
     seed: Option<u64>,
+    deterministic_seed: Option<u64>,
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
@@ -281,6 +289,7 @@ fn min_cost_flow_edges_with_options(
         max_iters,
         tolerance,
         seed,
+        deterministic_seed,
         threads,
         alpha,
         use_ipm,
@@ -316,6 +325,7 @@ fn min_cost_flow_edges_with_options(
     max_iters = None,
     tolerance = None,
     seed = None,
+    deterministic_seed = None,
     threads = None,
     alpha = None,
     force_cost_scaling = None,
@@ -338,6 +348,7 @@ fn min_cost_flow_edges_with_scaling(
     max_iters: Option<usize>,
     tolerance: Option<f64>,
     seed: Option<u64>,
+    deterministic_seed: Option<u64>,
     threads: Option<usize>,
     alpha: Option<f64>,
     force_cost_scaling: Option<bool>,
@@ -353,6 +364,7 @@ fn min_cost_flow_edges_with_scaling(
         max_iters,
         tolerance,
         seed,
+        deterministic_seed,
         threads,
         alpha,
         None,
@@ -389,6 +401,7 @@ fn min_cost_flow_edges_with_scaling(
     max_iters = None,
     tolerance = None,
     seed = None,
+    deterministic_seed = None,
     threads = None,
     alpha = None,
     use_ipm = None,
@@ -413,6 +426,7 @@ fn run_ipm_edges(
     max_iters: Option<usize>,
     tolerance: Option<f64>,
     seed: Option<u64>,
+    deterministic_seed: Option<u64>,
     threads: Option<usize>,
     alpha: Option<f64>,
     use_ipm: Option<bool>,
@@ -430,6 +444,7 @@ fn run_ipm_edges(
         max_iters,
         tolerance,
         seed,
+        deterministic_seed,
         threads,
         alpha,
         use_ipm,
@@ -447,6 +462,12 @@ fn run_ipm_edges(
         final_gap: ipm_result.stats.last_gap,
         termination: ipm_result.termination,
         oracle_mode: ipm_result.stats.oracle_mode,
+        deterministic_mode_used: opts.deterministic,
+        seed_used: if opts.deterministic {
+            opts.deterministic_seed
+        } else {
+            Some(opts.seed)
+        },
         rounding_performed: false,
         rounding_success: false,
         final_integer_cost: None,

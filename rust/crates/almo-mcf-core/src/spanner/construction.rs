@@ -327,17 +327,22 @@ fn build_base_layer(graph: &Graph) -> (Vec<LevelEdge>, Vec<Vec<usize>>) {
 pub(crate) fn build_level(
     node_count: usize,
     edges: Vec<LevelEdge>,
-    adjacency: Vec<Vec<usize>>,
+    mut adjacency: Vec<Vec<usize>>,
     config: &SpannerConfig,
 ) -> LevelGraph {
+    if config.deterministic {
+        sort_adjacency(&mut adjacency, &edges, config.deterministic_seed);
+    }
     let target = ((node_count.max(2) as f64).ln().ceil() as usize).max(1);
-    let cluster_map = greedy_cluster(node_count, &edges, &adjacency, target);
+    let cluster_map = greedy_cluster(node_count, &edges, &adjacency, target, config.deterministic);
     let (sparse_edges, sparse_adjacency) = sparsify_level(
         node_count,
         &edges,
         &adjacency,
         &cluster_map,
         config.size_bound,
+        config.deterministic,
+        config.deterministic_seed,
     );
     LevelGraph {
         node_count,
@@ -354,13 +359,18 @@ pub(crate) fn greedy_cluster(
     edges: &[LevelEdge],
     adjacency: &[Vec<usize>],
     target: usize,
+    deterministic: bool,
 ) -> Vec<usize> {
     let mut degree: Vec<(usize, usize)> = adjacency
         .iter()
         .enumerate()
         .map(|(idx, neighbors)| (idx, neighbors.len()))
         .collect();
-    degree.sort_by(|a, b| b.1.cmp(&a.1));
+    if deterministic {
+        degree.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    } else {
+        degree.sort_by(|a, b| b.1.cmp(&a.1));
+    }
     let mut cluster_map = vec![usize::MAX; node_count];
     let mut cluster_id = 0;
     for (start, _) in degree {
@@ -402,13 +412,20 @@ pub(crate) fn sparsify_level(
     adjacency: &[Vec<usize>],
     cluster_map: &[usize],
     size_bound: usize,
+    deterministic: bool,
+    deterministic_seed: Option<u64>,
 ) -> (Vec<usize>, Vec<Vec<usize>>) {
     let mut sparse_edges = Vec::new();
     let mut sparse_adjacency = vec![Vec::new(); node_count];
     let mut seen = HashSet::new();
 
     for neighbors in adjacency.iter().take(node_count) {
-        for &edge_id in neighbors.iter().take(2) {
+        let mut ordered = neighbors.to_vec();
+        if deterministic {
+            ordered
+                .sort_by_key(|&edge_id| deterministic_edge_key(edge_id, edges, deterministic_seed));
+        }
+        for &edge_id in ordered.iter().take(2) {
             if sparse_edges.len() >= size_bound {
                 break;
             }
@@ -419,7 +436,12 @@ pub(crate) fn sparsify_level(
     }
 
     let mut cluster_pairs = HashSet::new();
-    for (edge_id, edge) in edges.iter().enumerate() {
+    let mut edge_ids: Vec<usize> = (0..edges.len()).collect();
+    if deterministic {
+        edge_ids.sort_by_key(|&edge_id| deterministic_edge_key(edge_id, edges, deterministic_seed));
+    }
+    for edge_id in edge_ids {
+        let edge = &edges[edge_id];
         if sparse_edges.len() >= size_bound {
             break;
         }
@@ -438,7 +460,12 @@ pub(crate) fn sparsify_level(
     }
 
     let mut cluster_seen = HashSet::new();
-    for (edge_id, edge) in edges.iter().enumerate() {
+    let mut edge_ids: Vec<usize> = (0..edges.len()).collect();
+    if deterministic {
+        edge_ids.sort_by_key(|&edge_id| deterministic_edge_key(edge_id, edges, deterministic_seed));
+    }
+    for edge_id in edge_ids {
+        let edge = &edges[edge_id];
         if sparse_edges.len() >= size_bound {
             break;
         }
@@ -462,6 +489,12 @@ pub(crate) fn sparsify_level(
             if edge.v < node_count {
                 sparse_adjacency[edge.v].push(edge_id);
             }
+        }
+    }
+    if deterministic {
+        for neighbors in sparse_adjacency.iter_mut() {
+            neighbors
+                .sort_by_key(|&edge_id| deterministic_edge_key(edge_id, edges, deterministic_seed));
         }
     }
 
@@ -509,4 +542,34 @@ fn ordered_pair(u: usize, v: usize) -> (usize, usize) {
     } else {
         (v, u)
     }
+}
+
+fn sort_adjacency(
+    adjacency: &mut [Vec<usize>],
+    edges: &[LevelEdge],
+    deterministic_seed: Option<u64>,
+) {
+    for neighbors in adjacency.iter_mut() {
+        neighbors
+            .sort_by_key(|&edge_id| deterministic_edge_key(edge_id, edges, deterministic_seed));
+    }
+}
+
+fn deterministic_edge_key(
+    edge_id: usize,
+    edges: &[LevelEdge],
+    deterministic_seed: Option<u64>,
+) -> (usize, usize, u64) {
+    let edge = &edges[edge_id];
+    let (u, v) = ordered_pair(edge.u, edge.v);
+    let seed = deterministic_seed.unwrap_or(0);
+    (u, v, splitmix64(seed ^ edge_id as u64))
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e3779b97f4a7c15);
+    let mut z = value;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
 }

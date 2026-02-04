@@ -121,6 +121,14 @@ pub struct DeterministicDynamicSpanner {
     spanner: DynamicSpanner,
 }
 
+fn ordered_pair(u: usize, v: usize) -> (usize, usize) {
+    if u <= v {
+        (u, v)
+    } else {
+        (v, u)
+    }
+}
+
 impl SpannerHierarchy {
     pub fn build_recursive(params: SpannerBuildParams<'_>) -> Option<Self> {
         let SpannerBuildParams {
@@ -751,12 +759,16 @@ impl DeterministicDynamicSpanner {
     }
 
     fn rebuild(&mut self) {
-        let active_edges: Vec<(usize, &OriginalEdge)> = self
+        let mut active_edges: Vec<(usize, &OriginalEdge)> = self
             .edges
             .iter()
             .enumerate()
             .filter(|(_, edge)| edge.active)
             .collect();
+        active_edges.sort_by_key(|(edge_id, edge)| {
+            let (u, v) = ordered_pair(edge.u, edge.v);
+            (u, v, *edge_id)
+        });
         self.spanner = DynamicSpanner::new(self.node_count);
         self.edge_to_spanner = vec![None; self.edges.len()];
         if active_edges.is_empty() {

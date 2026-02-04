@@ -243,6 +243,7 @@ impl OracleEngine {
                 seed,
                 rebuild_every.max(1),
                 deterministic,
+                None,
             ))
         }
     }
@@ -258,7 +259,8 @@ impl OracleEngine {
                 if use_dynamic {
                     oracle.find_approx_min_ratio_cycle(query)
                 } else {
-                    let mut fallback = MinRatioOracle::new_with_mode(0, 25, oracle.deterministic);
+                    let mut fallback =
+                        MinRatioOracle::new_with_mode(0, 25, oracle.deterministic, None);
                     fallback.best_cycle(query)
                 }
             }
