@@ -34,9 +34,8 @@ jobs:
           CIBW_PROJECT_PATH: .
           CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
           CIBW_BUILD_VERBOSITY: 1
-          # Use pip as build frontend for maturin-backed wheels to avoid
-          # producing malformed wheel metadata on cross-arch macOS builds.
-          CIBW_BUILD_FRONTEND: pip
+          # Use the default frontend (build) with maturin. The pip frontend
+          # has produced invalid `license-file` metadata on macOS wheels.
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: x86_64 arm64
           CIBW_ARCHS_WINDOWS: AMD64
