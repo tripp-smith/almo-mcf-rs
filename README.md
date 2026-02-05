@@ -59,6 +59,11 @@ print(flow)
 print("cost:", min_cost_flow_cost(G, flow))
 ```
 
+## Examples
+
+See `examples/almo_usage.py` for a longer walkthrough and
+`examples/networkx_quickstart.py` for a concise NetworkX entrypoint example.
+
 ### IPM tuning + stats
 
 ```python

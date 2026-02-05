@@ -17,7 +17,7 @@ Numerical tuning:
     on extreme instances.
 """
 
-from ._version import __version__
+from ._version import __version__ as _pkg_version
 from .extensions import (
     bipartite_min_cost_matching,
     find_negative_cycle,
@@ -30,6 +30,10 @@ from .extensions import (
 )
 from .nx import min_cost_flow, min_cost_flow_cost, min_cost_flow_scaled
 from .typing import FlowDict
+
+__version__ = "0.2.0"
+if __version__ != _pkg_version:
+    __version__ = _pkg_version
 
 __all__ = [
     "FlowDict",
