@@ -12,10 +12,14 @@ pub struct HSFCWitness {
 
 impl HSFCWitness {
     pub fn new(circulation: Vec<f64>) -> Self {
-        let mut widths = Vec::with_capacity(circulation.len());
+        Self::from_lf_delta(circulation.clone(), circulation)
+    }
+
+    pub fn from_lf_delta(circulation: Vec<f64>, lf_delta: Vec<f64>) -> Self {
+        let mut widths = Vec::with_capacity(lf_delta.len());
         let mut global_width = 0.0;
-        for &value in &circulation {
-            let width = value.abs();
+        for &value in &lf_delta {
+            let width = 1.0 + value.abs();
             widths.push(width);
             if width > global_width {
                 global_width = width;
@@ -115,8 +119,8 @@ mod tests {
     #[test]
     fn witness_stability_respects_dirty_edges() {
         let mut prev = HSFCWitness::new(vec![0.5, 0.5]);
-        prev.global_width = 0.5;
-        let next = HSFCWitness::new(vec![1.5, 0.5]);
+        prev.global_width = 1.5;
+        let next = HSFCWitness::new(vec![4.0, 0.5]);
         let mut dirty = HashSet::new();
         dirty.insert(EdgeId(0));
         assert!(next.check_stability(&prev, &dirty));

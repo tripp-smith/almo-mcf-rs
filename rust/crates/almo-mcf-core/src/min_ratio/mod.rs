@@ -1,3 +1,4 @@
+use crate::spanner::{DynamicSpanner, EdgeValues};
 use crate::trees::{LowStretchTree, TreeBuildMode, TreeError};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -37,10 +38,15 @@ pub struct MinRatioOracle {
     pub rebuild_every: usize,
     pub last_rebuild: usize,
     pub tree: Option<LowStretchTree>,
+    pub spanner: Option<DynamicSpanner>,
+    pub use_spanner_embeddings: bool,
     pub stability_window: usize,
     pub ratio_tolerance: f64,
     pub stable_iters: usize,
     pub last_ratio: Option<f64>,
+    pub early_stop_kappa: Option<f64>,
+    pub approx_stats: Option<ApproximationStats>,
+    pub cost_stats: OracleCostStats,
 }
 
 impl MinRatioOracle {
@@ -52,10 +58,15 @@ impl MinRatioOracle {
             rebuild_every,
             last_rebuild: 0,
             tree: None,
+            spanner: None,
+            use_spanner_embeddings: true,
             stability_window: 0,
             ratio_tolerance: 0.0,
             stable_iters: 0,
             last_ratio: None,
+            early_stop_kappa: None,
+            approx_stats: None,
+            cost_stats: OracleCostStats::default(),
         }
     }
 
@@ -91,6 +102,7 @@ impl MinRatioOracle {
         node_count: usize,
         tails: &[u32],
         heads: &[u32],
+        gradients: &[f64],
         lengths: &[f64],
     ) -> Result<(), TreeError> {
         let tree = if self.deterministic {
@@ -114,14 +126,29 @@ impl MinRatioOracle {
             )?
         };
         self.tree = Some(tree);
+        if self.use_spanner_embeddings {
+            let mut spanner = DynamicSpanner::new(node_count);
+            for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+                let gradient = gradients.get(edge_id).copied().unwrap_or(0.0);
+                spanner.insert_edge_with_values(
+                    tail as usize,
+                    head as usize,
+                    lengths[edge_id],
+                    gradient,
+                );
+            }
+            self.spanner = Some(spanner);
+        }
         self.last_rebuild = iter;
         self.stable_iters = 0;
         self.last_ratio = None;
+        self.approx_stats = None;
         Ok(())
     }
 
     fn should_rebuild(&self, iter: usize) -> bool {
         self.tree.is_none()
+            || (self.use_spanner_embeddings && self.spanner.is_none())
             || iter == 0
             || (iter - self.last_rebuild) >= self.rebuild_every
             || (self.stability_window > 0 && self.stable_iters >= self.stability_window)
@@ -169,20 +196,162 @@ impl MinRatioOracle {
                 query.node_count,
                 query.tails,
                 query.heads,
+                query.gradients,
                 query.lengths,
             )?;
         }
-        let tree = self.tree.as_ref().expect("tree should exist after rebuild");
-        let best = best_cycle_over_edges(
+        let best = if self.use_spanner_embeddings {
+            self.best_cycle_over_embeddings(query)
+        } else {
+            let tree = self.tree.as_ref().expect("tree should exist after rebuild");
+            best_cycle_over_edges(
+                tree,
+                query.tails,
+                query.heads,
+                query.gradients,
+                query.lengths,
+            )
+        };
+
+        self.update_stability(best.as_ref());
+        let best = if let (Some(kappa), Some(candidate)) = (self.early_stop_kappa, best.as_ref()) {
+            if candidate.ratio >= -kappa {
+                None
+            } else {
+                best
+            }
+        } else {
+            best
+        };
+        Ok(best)
+    }
+
+    pub fn enable_spanner_embeddings(&mut self, enabled: bool) {
+        self.use_spanner_embeddings = enabled;
+        if !enabled {
+            self.spanner = None;
+        }
+    }
+
+    pub fn set_early_stop_kappa(&mut self, kappa: Option<f64>) {
+        self.early_stop_kappa = kappa;
+    }
+
+    pub fn approx_stats(&self) -> Option<&ApproximationStats> {
+        self.approx_stats.as_ref()
+    }
+
+    pub fn apply_updates(
+        &mut self,
+        updates: &[(usize, f64, f64)],
+        gradient_threshold: f64,
+        length_factor: f64,
+    ) -> usize {
+        self.cost_stats.update_batches = self.cost_stats.update_batches.saturating_add(1);
+        if let Some(spanner) = self.spanner.as_mut() {
+            let instability =
+                spanner.batch_update_edges(updates, gradient_threshold, length_factor);
+            self.cost_stats.total_updates =
+                self.cost_stats.total_updates.saturating_add(updates.len());
+            instability
+        } else {
+            0
+        }
+    }
+
+    fn best_cycle_over_embeddings(&mut self, query: OracleQuery<'_>) -> Option<CycleCandidate> {
+        let tree = self.tree.as_ref()?;
+        let spanner = self.spanner.as_mut()?;
+        let mut stats = ApproximationStats::default();
+        let mut best: Option<CycleCandidate> = None;
+        let edge_count = query.tails.len();
+        for edge_id in 0..edge_count {
+            if let Some(values) = spanner.edge_values(edge_id) {
+                if (values.length - query.lengths[edge_id]).abs() > 0.0
+                    || (values.gradient - query.gradients[edge_id]).abs() > 0.0
+                {
+                    spanner.update_edge_values(
+                        edge_id,
+                        query.lengths[edge_id],
+                        query.gradients[edge_id],
+                    );
+                }
+            }
+            if tree.tree_edges.get(edge_id).copied().unwrap_or(false) {
+                continue;
+            }
+            let tail = query.tails[edge_id] as usize;
+            let head = query.heads[edge_id] as usize;
+            let steps = spanner
+                .embedding_steps(edge_id)
+                .map(|steps| steps.to_vec())
+                .or_else(|| spanner.embed_edge_with_bfs(edge_id, head, tail));
+            let Some(steps) = steps else {
+                if let Some(fallback) = score_edge_cycle(
+                    tree,
+                    edge_id,
+                    query.tails,
+                    query.heads,
+                    query.gradients,
+                    query.lengths,
+                ) {
+                    best = Some(match best {
+                        Some(current) => select_better_candidate(current, fallback),
+                        None => fallback,
+                    });
+                    stats.candidate_count += 1;
+                }
+                continue;
+            };
+            let mut cycle_edges = Vec::with_capacity(steps.len() + 1);
+            let mut numerator = query.gradients[edge_id];
+            let mut denominator = query.lengths[edge_id].abs();
+            cycle_edges.push((edge_id, 1));
+            for step in &steps {
+                let edge = spanner.edge_values(step.edge)?;
+                if !edge.active {
+                    continue;
+                }
+                let dir = step.dir as f64;
+                numerator += dir * edge.gradient;
+                denominator += edge.length.abs();
+                cycle_edges.push((step.edge, step.dir));
+                stats.update_errors(step.edge, edge, query);
+            }
+            if denominator <= 0.0 {
+                continue;
+            }
+            let candidate = CycleCandidate {
+                ratio: numerator / denominator,
+                numerator,
+                denominator,
+                cycle_edges,
+            };
+            best = Some(match best {
+                Some(current) => select_better_candidate(current, candidate),
+                None => candidate,
+            });
+            stats.candidate_count += 1;
+        }
+        self.approx_stats = Some(stats);
+        self.cost_stats.query_count = self.cost_stats.query_count.saturating_add(1);
+        self.cost_stats.total_candidates = self
+            .cost_stats
+            .total_candidates
+            .saturating_add(self.approx_stats.as_ref().map_or(0, |s| s.candidate_count));
+        let tree_best = best_cycle_over_edges(
             tree,
             query.tails,
             query.heads,
             query.gradients,
             query.lengths,
         );
-
-        self.update_stability(best.as_ref());
-        Ok(best)
+        match (best, tree_best) {
+            (Some(left), Some(right)) => Some(select_better_candidate(left, right)),
+            (Some(left), None) => Some(left),
+            (None, Some(right)) => Some(right),
+            (None, None) => None,
+        }
     }
 }
 
@@ -252,6 +421,42 @@ pub(crate) fn score_edge_cycle(
         denominator,
         cycle_edges,
     })
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ApproximationStats {
+    pub max_gradient_error: f64,
+    pub max_length_ratio: f64,
+    pub candidate_count: usize,
+}
+
+impl ApproximationStats {
+    fn update_errors(&mut self, edge_id: usize, edge: EdgeValues, query: OracleQuery<'_>) {
+        let query_gradient = query.gradients.get(edge_id).copied().unwrap_or(0.0);
+        let query_length = query.lengths.get(edge_id).copied().unwrap_or(0.0).abs();
+        let grad_error = (edge.gradient - query_gradient).abs();
+        if grad_error > self.max_gradient_error {
+            self.max_gradient_error = grad_error;
+        }
+        if query_length > 0.0 && edge.length > 0.0 {
+            let ratio = if edge.length > query_length {
+                edge.length / query_length
+            } else {
+                query_length / edge.length
+            };
+            if ratio > self.max_length_ratio {
+                self.max_length_ratio = ratio;
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct OracleCostStats {
+    pub query_count: usize,
+    pub update_batches: usize,
+    pub total_updates: usize,
+    pub total_candidates: usize,
 }
 
 #[cfg(feature = "parallel")]
@@ -548,6 +753,7 @@ mod tests {
         }
 
         let mut oracle = MinRatioOracle::new(9, 1);
+        oracle.enable_spanner_embeddings(false);
         let best_parallel = oracle
             .best_cycle(OracleQuery {
                 iter: 0,

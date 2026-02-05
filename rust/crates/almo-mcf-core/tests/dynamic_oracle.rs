@@ -42,6 +42,7 @@ fn dynamic_oracle_matches_baseline_ratio() {
 
     let mut dynamic = DynamicOracle::new(1, true);
     let mut baseline = MinRatioOracle::new_with_mode(1, 1, true, None);
+    baseline.enable_spanner_embeddings(false);
 
     let query = OracleQuery {
         iter: 0,

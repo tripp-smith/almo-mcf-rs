@@ -255,21 +255,21 @@ impl DynamicUpdateOracle for DynamicOracle {
 
 #[derive(Debug, Clone)]
 pub enum OracleEngine {
-    Static(MinRatioOracle),
-    Dynamic(DynamicOracle),
+    Static(Box<MinRatioOracle>),
+    Dynamic(Box<DynamicOracle>),
 }
 
 impl OracleEngine {
     pub fn new(seed: u64, rebuild_every: usize, deterministic: bool, use_dynamic: bool) -> Self {
         if use_dynamic {
-            OracleEngine::Dynamic(DynamicOracle::new(seed, deterministic))
+            OracleEngine::Dynamic(Box::new(DynamicOracle::new(seed, deterministic)))
         } else {
-            OracleEngine::Static(MinRatioOracle::new_with_mode(
+            OracleEngine::Static(Box::new(MinRatioOracle::new_with_mode(
                 seed,
                 rebuild_every.max(1),
                 deterministic,
                 None,
-            ))
+            )))
         }
     }
 
