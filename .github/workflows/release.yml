@@ -25,7 +25,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Install Python dependencies
-        run: python -m pip install -r tests/requirements.txt "maturin>=1.7.6,<2.0"
+        run: python -m pip install -r tests/requirements.txt "maturin>=1.9.1,<2.0"
       - name: Cargo fmt
         run: cargo fmt --all -- --check
         working-directory: rust
