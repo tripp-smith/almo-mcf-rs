@@ -52,7 +52,8 @@ jobs:
           output-dir: dist
       - name: Verify wheel/sdist metadata
         run: |
-          python -m pip install --upgrade pip "twine==5.1.1"
+          # Twine 6.2.0+ is required for Metadata-Version 2.4 support.
+          python -m pip install --upgrade pip twine
           twine check --strict dist/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
