@@ -314,11 +314,11 @@ pub(crate) fn run_ipm_with_lower_bound(
                     stall_iters = 0;
                 }
                 if stall_iters >= 10 {
-                    using_fallback = true;
                     eprintln!(
-                        "warning: dynamic oracle stalled (reduction {:.3e}); falling back to SSP",
+                        "warning: dynamic oracle stalled (reduction {:.3e}); monitoring stability",
                         reduction
                     );
+                    stall_iters = 0;
                 }
             }
         }

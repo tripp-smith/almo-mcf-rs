@@ -43,6 +43,13 @@ pub struct EmbeddingMetrics {
     pub total_gradient: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EdgeValues {
+    pub length: f64,
+    pub gradient: f64,
+    pub active: bool,
+}
+
 #[derive(Debug, Clone)]
 struct SpannerEdge {
     u: usize,
@@ -71,6 +78,7 @@ pub struct SpannerLevel {
 #[derive(Debug, Clone)]
 pub struct SpannerHierarchy {
     pub levels: Vec<SpannerLevel>,
+    pub vertex_maps: Vec<Vec<usize>>,
     pub rebuild_every: usize,
     pub instability_budget: usize,
     pub step_count: usize,
@@ -145,29 +153,55 @@ impl SpannerHierarchy {
             return None;
         }
         let mut hierarchy = Vec::new();
+        let mut vertex_maps = Vec::new();
         let level_count = levels.max(1);
+        let mut current_node_count = node_count;
+        let mut current_tails = tails.to_vec();
+        let mut current_heads = heads.to_vec();
+        let mut current_lengths = lengths.to_vec();
+        let cluster_ratio = ((node_count as f64).ln().ceil() as usize).max(2);
         for level in 0..level_count {
             let tree = LowStretchTree::build_low_stretch(
-                node_count,
-                tails,
-                heads,
-                lengths,
+                current_node_count,
+                &current_tails,
+                &current_heads,
+                &current_lengths,
                 seed + level as u64,
             )
             .ok()?;
-            let mut spanner = DynamicSpanner::new(node_count);
-            for (edge_id, (&tail, &head)) in tails.iter().zip(heads.iter()).enumerate() {
+            let mut spanner = DynamicSpanner::new(current_node_count);
+            for (edge_id, (&tail, &head)) in
+                current_tails.iter().zip(current_heads.iter()).enumerate()
+            {
                 spanner.insert_edge_with_values(
                     tail as usize,
                     head as usize,
-                    lengths[edge_id],
+                    current_lengths[edge_id],
                     0.0,
                 );
             }
             hierarchy.push(SpannerLevel { spanner, tree });
+            let map = deterministic_vertex_map(
+                current_node_count,
+                &current_tails,
+                &current_heads,
+                &hierarchy.last().unwrap().tree,
+                cluster_ratio,
+            );
+            vertex_maps.push(map.clone());
+            if level + 1 == level_count {
+                break;
+            }
+            let (new_tails, new_heads, new_lengths, new_node_count) =
+                compress_edges(&map, &current_tails, &current_heads, &current_lengths);
+            current_tails = new_tails;
+            current_heads = new_heads;
+            current_lengths = new_lengths;
+            current_node_count = new_node_count.max(1);
         }
         Some(Self {
             levels: hierarchy,
+            vertex_maps,
             rebuild_every: rebuild_every.max(1),
             instability_budget,
             step_count: 0,
@@ -181,7 +215,7 @@ impl SpannerHierarchy {
         gradient_threshold: f64,
         length_factor: f64,
     ) {
-        for level in &mut self.levels {
+        if let Some(level) = self.levels.first_mut() {
             let instability =
                 level
                     .spanner
@@ -232,6 +266,7 @@ impl SpannerHierarchy {
             instability_budget: self.instability_budget,
         }) {
             self.levels = new_hierarchy.levels;
+            self.vertex_maps = new_hierarchy.vertex_maps;
             self.instability = 0;
             true
         } else {
@@ -516,6 +551,15 @@ impl DynamicSpanner {
         self.embeddings
             .get(&original_edge)
             .map(|path| path.steps.as_slice())
+    }
+
+    pub fn edge_values(&self, edge_id: usize) -> Option<EdgeValues> {
+        let edge = self.edges.get(edge_id)?;
+        Some(EdgeValues {
+            length: edge.length,
+            gradient: edge.gradient,
+            active: edge.active,
+        })
     }
 
     pub fn edge_endpoints(&self, edge_id: usize) -> Option<(usize, usize)> {
