@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.7"]
+requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -7,8 +7,10 @@ name = "almo-mcf"
 version = "0.2.0"
 description = "Almost-linear minimum-cost flow (Python + Rust)"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
+authors = [{ name = "Tripp Smith" }]
+keywords = ["min-cost-flow", "networkx", "optimization", "graphs", "rust", "python"]
 dependencies = [
   "networkx>=3.0",
   "numpy>=1.24",
@@ -17,9 +19,25 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Rust",
   "License :: OSI Approved :: Apache Software License",
+  "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Homepage = "https://github.com/tripp-smith/almo-mcf-rs"
+Repository = "https://github.com/tripp-smith/almo-mcf-rs"
+Documentation = "https://github.com/tripp-smith/almo-mcf-rs#readme"
+
+[project.optional-dependencies]
+dev = [
+  "maturin>=1.7",
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "ruff>=0.5",
 ]
 
 [tool.maturin]
 manifest-path = "rust/crates/almo-mcf-py/Cargo.toml"
 python-source = "python"
 module-name = "almo_mcf._core"
+bindings = "pyo3"
+features = ["abi3-py310"]
