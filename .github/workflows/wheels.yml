@@ -51,18 +51,19 @@ jobs:
           package-dir: .
           output-dir: dist
       - name: Show core metadata version + license fields
+        shell: python
         run: |
-          python - <<'PY'
-          import glob, zipfile
+          import glob
+          import zipfile
+
           for w in sorted(glob.glob("dist/*.whl")):
-            with zipfile.ZipFile(w) as z:
-              meta = [n for n in z.namelist() if n.endswith(".dist-info/METADATA")][0]
-              m = z.read(meta).decode("utf-8","replace").splitlines()
-              print(f"\n=== {w} ===")
-              for line in m:
-                if line.lower().startswith(("metadata-version:", "license", "license-file")):
-                  print(line)
-          PY
+              with zipfile.ZipFile(w) as z:
+                  meta = [n for n in z.namelist() if n.endswith(".dist-info/METADATA")][0]
+                  m = z.read(meta).decode("utf-8", "replace").splitlines()
+                  print(f"\n=== {w} ===")
+                  for line in m:
+                      if line.lower().startswith(("metadata-version:", "license", "license-file")):
+                          print(line)
       - name: Verify wheel/sdist metadata
         run: |
           python -m pip install --upgrade pip twine
