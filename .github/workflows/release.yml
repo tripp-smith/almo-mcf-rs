@@ -25,6 +25,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Install Python dependencies
+        # Updated to 1.9.1 to ensure correct metadata casing
         run: python -m pip install -r tests/requirements.txt "maturin>=1.9.1,<2.0"
       - name: Cargo fmt
         run: cargo fmt --all -- --check
@@ -54,7 +55,8 @@ jobs:
           merge-multiple: true
       - name: Verify wheel/sdist metadata
         run: |
-          python -m pip install --upgrade pip "twine==5.1.1"
+          # REMOVED ==5.1.1 pin. Twine 6.2.0+ is required for Metadata 2.4
+          python -m pip install --upgrade pip twine
           twine check --strict dist/*
       - name: Publish
         uses: pypa/gh-action-pypi-publish@v1.9.0
