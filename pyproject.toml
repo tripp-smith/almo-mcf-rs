@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.7.6,<2.0"]
+requires = ["maturin>=1.8.0,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -8,6 +8,7 @@ version = "0.2.0"
 description = "Almost-linear minimum-cost flow (Python + Rust)"
 readme = "README.md"
 license = { text = "Apache-2.0" }
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "Tripp Smith" }]
 keywords = ["min-cost-flow", "networkx", "optimization", "graphs", "rust", "python"]
@@ -29,7 +30,7 @@ Documentation = "https://github.com/tripp-smith/almo-mcf-rs#readme"
 
 [project.optional-dependencies]
 dev = [
-  "maturin>=1.7.6",
+  "maturin>=1.8.0",
   "pytest>=7.0",
   "pytest-cov>=4.0",
   "ruff>=0.5",
