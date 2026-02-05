@@ -33,7 +33,9 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: rust
       - name: Build extension
-        run: maturin develop
+        run: |
+          maturin build --release --out dist
+          python -m pip install dist/*.whl
       - name: Pytest
         run: pytest
 
