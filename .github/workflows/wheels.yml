@@ -30,7 +30,9 @@ jobs:
           CIBW_PROJECT_PATH: .
           CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
           CIBW_BUILD_VERBOSITY: 1
-          CIBW_BUILD_FRONTEND: build
+          # Use pip as build frontend for maturin-backed wheels to avoid
+          # producing malformed wheel metadata on cross-arch macOS builds.
+          CIBW_BUILD_FRONTEND: pip
           CIBW_ARCHS_LINUX: x86_64
           CIBW_ARCHS_MACOS: x86_64 arm64
           CIBW_ARCHS_WINDOWS: AMD64
@@ -44,6 +46,10 @@ jobs:
         with:
           package-dir: .
           output-dir: dist
+      - name: Verify wheel/sdist metadata
+        run: |
+          python -m pip install --upgrade pip twine
+          twine check --strict dist/*
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
