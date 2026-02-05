@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.7.6,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -29,7 +29,7 @@ Documentation = "https://github.com/tripp-smith/almo-mcf-rs#readme"
 
 [project.optional-dependencies]
 dev = [
-  "maturin>=1.7",
+  "maturin>=1.7.6",
   "pytest>=7.0",
   "pytest-cov>=4.0",
   "ruff>=0.5",
