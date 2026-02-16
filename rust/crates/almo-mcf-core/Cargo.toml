@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "ipm_almost_linear"
 harness = false
+
+[[bench]]
+name = "convex_applications"
+harness = false
