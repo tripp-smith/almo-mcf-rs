@@ -45,6 +45,10 @@ pub struct IpmStats {
     pub oracle_update_count: usize,
     pub oracle_fallback_count: usize,
     pub barrier_clamp_stats: Vec<BarrierClampStats>,
+    pub potential_drops: Vec<f64>,
+    pub newton_step_norms: Vec<f64>,
+    pub convergence_gap: f64,
+    pub total_iters: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +88,74 @@ pub struct IpmRunContext {
 pub struct HiddenStableFlow {
     pub width: Vec<f64>,
     pub monotonicity_counter: usize,
+}
+
+pub type Flow = Vec<f64>;
+pub type FlowUpdate = Vec<f64>;
+pub type ExactFlow = Vec<i64>;
+
+fn vec_l2_norm(v: &[f64]) -> f64 {
+    v.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+pub(crate) fn compute_newton_step(gradients: &[f64]) -> Vec<f64> {
+    gradients.iter().map(|g| -g).collect()
+}
+
+pub fn verify_almost_linear_iters(m: usize, stats: &IpmStats) -> bool {
+    let mm = m.max(2) as f64;
+    let bound = mm.powf(0.1) * mm.ln().powi(2).max(1.0);
+    (stats.iterations as f64) <= bound * 10.0
+}
+
+pub fn one_step_analysis(
+    gradients: &[f64],
+    cycle_edges: &[(usize, i8)],
+    edge_count: usize,
+) -> (FlowUpdate, f64) {
+    let direction = compute_newton_step(gradients);
+    let mut delta = vec![0.0; edge_count];
+    for &(edge_id, dir) in cycle_edges {
+        if edge_id < delta.len() {
+            delta[edge_id] += direction[edge_id].signum() * dir as f64;
+        }
+    }
+    let theta = 1.0;
+    (delta, theta)
+}
+
+pub fn enforce_stability_bounds(x: &mut Flow, lower: &[f64], upper: &[f64], epsilon: f64) -> bool {
+    let mut changed = false;
+    for i in 0..x.len() {
+        let lo = lower[i] + epsilon;
+        let hi = upper[i] - epsilon;
+        let clamped = x[i].clamp(lo, hi);
+        if (clamped - x[i]).abs() > 0.0 {
+            changed = true;
+            x[i] = clamped;
+        }
+    }
+    changed
+}
+
+pub fn find_initial_point(problem: &McfProblem) -> (Flow, f64) {
+    let mut x = Vec::with_capacity(problem.edge_count());
+    for i in 0..problem.edge_count() {
+        let l = problem.lower[i] as f64;
+        let u = problem.upper[i] as f64;
+        let midpoint = 0.5 * (l + u);
+        let geometric = (l.max(0.0) * u.max(0.0)).sqrt();
+        x.push(if midpoint.is_finite() {
+            midpoint
+        } else {
+            geometric
+        });
+    }
+    (x, 0.0)
+}
+
+pub fn check_final_rounding(approx_flow: &Flow) -> ExactFlow {
+    approx_flow.iter().map(|v| v.round() as i64).collect()
 }
 
 impl HiddenStableFlow {
@@ -260,6 +332,10 @@ pub(crate) fn run_ipm_with_lower_bound(
         oracle_update_count: 0,
         oracle_fallback_count: 0,
         barrier_clamp_stats: Vec::new(),
+        potential_drops: Vec::new(),
+        newton_step_norms: Vec::new(),
+        convergence_gap: f64::INFINITY,
+        total_iters: 0,
     };
     let mut termination = IpmTermination::IterationLimit;
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
@@ -481,6 +557,13 @@ pub(crate) fn run_ipm_with_lower_bound(
         let required_reduction = potential
             .reduction_floor(current_potential)
             .max(0.01 * kappa * kappa);
+        if vec_l2_norm(&delta) > (edge_count as f64).sqrt() {
+            let scale = (edge_count as f64).sqrt() / vec_l2_norm(&delta).max(1e-12);
+            for value in &mut delta {
+                *value *= scale;
+            }
+        }
+
         if let Some((candidate_flow, step)) = search::line_search(search::LineSearchInput {
             flow: &flow,
             delta: &delta,
@@ -493,6 +576,11 @@ pub(crate) fn run_ipm_with_lower_bound(
             gradient: &gradient,
             lengths: &lengths,
         }) {
+            let potential_after_step = potential.value(&cost, &candidate_flow, &lower, &upper);
+            let drop = (current_potential - potential_after_step).max(0.0);
+            stats.potential_drops.push(drop);
+            let step_vec: Vec<f64> = delta.iter().map(|d| d * step).collect();
+            stats.newton_step_norms.push(vec_l2_norm(&step_vec));
             flow = candidate_flow;
             stats.last_step_size = step;
             if let Some(oracle) = dynamic_oracle.as_mut() {
@@ -584,6 +672,8 @@ pub(crate) fn run_ipm_with_lower_bound(
         compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
     stats.barrier_clamp_stats.push(clamp_stats);
     stats.last_gap = potential.duality_gap(&cost, &flow, &final_residuals);
+    stats.convergence_gap = stats.last_gap;
+    stats.total_iters = stats.iterations;
     if stats.final_gap_estimate.is_none() {
         stats.final_gap_estimate = stats.last_duality_gap_proxy;
     }

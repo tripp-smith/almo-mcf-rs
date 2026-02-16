@@ -72,3 +72,77 @@ Brings everything together, ensures determinism, and verifies performance.
 - [x] Add unit/integration tests for new components (e.g., IPM convergence, derandomized forests).
 - [x] Update docs (README, DESIGN_SPEC.md) with usage for the almost-linear mode.
 - [x] Publish release on PyPI, fix any remaining TODOs (e.g., Clippy warnings). (Release prep done; publish requires credentials.)
+
+### 8. Execution Plan: Enhance IPM for Almost-Linear Iterations (step-by-step)
+This plan operationalizes the expanded checklist into concrete implementation + verification steps.
+
+#### Phase A — Core one-step Newton integration (Paper §4.1, Lemma 4.3)
+- [ ] A1. Add `IpmEngine` internal struct in `rust/crates/almo-mcf-core/src/ipm/mod.rs` to hold per-iteration state (`flow`, `potential`, `chain`, `rebuilding_game`, `stats`).
+- [ ] A2. Implement `one_step_analysis(&mut self, current_flow: &Flow, potential: f64) -> (FlowUpdate, f64)` in `ipm/mod.rs`.
+- [ ] A3. Inside `one_step_analysis`, compute gradient via current barrier model and keep the exact expression notes for `∇φ` in comments.
+- [ ] A4. Add private `compute_newton_step(&self, gradients: &[f64]) -> Vec<f64>` that maps cycle embedding output into the Newton direction basis.
+- [ ] A5. Query min-ratio cycle through dynamic oracle path and apply leaving rule to compute `θ`.
+- [ ] A6. Form `Δ = θ · cycle` and evaluate candidate flow update.
+- [ ] A7. Add exact drop assertion check path: `φ(x + Δ) <= φ(x) - 0.5 * ||∇φ(x)||^2 / trace(H)` with numerical tolerance.
+- [ ] A8. Wire chain and rebuilding hooks per iteration: `chain.update(t)` then `rebuilding_game.play_round(t, cycle_size, quality_ok)`.
+- [ ] A9. Add/update test `test_one_step_potential_drop` with seeded random graphs and strict tolerance.
+
+#### Phase B — Stability window + initialization + rounding (Paper §§4.2–4.3)
+- [ ] B1. Add `enforce_stability_bounds(&mut self, x: &mut Flow) -> bool` to clamp slacks to `[ε, 1-ε]`.
+- [ ] B2. Derive `ε` from graph size/polynomial bound and centralize in helper.
+- [ ] B3. Add `find_initial_point(&self, graph: &Graph) -> (Flow, f64)` using midpoint initialization and demand perturbation repair.
+- [ ] B4. Implement geometric-mean fallback `x_e^0 = sqrt(l_e u_e)` when midpoint violates feasibility/stability.
+- [ ] B5. Add `check_final_rounding(&self, approx_flow: &Flow) -> ExactFlow` using residual shortest-path repair.
+- [ ] B6. In one-step path, guard oversized moves with clamp if `||Δ|| > sqrt(m)`.
+- [ ] B7. Add test `test_stability_and_init` (multiple random graphs, 10-step run, stability assertions).
+
+#### Phase C — Iteration bound controls for almost-linear regime (Theorem 4.13)
+- [ ] C1. Introduce solver orchestration module (`solver.rs` or equivalent integration in `lib.rs`) and expose dynamic iteration budgeting API.
+- [ ] C2. Implement `set_dynamic_max_iters(m, approx_factor)` as `O(sqrt(m) log(m/ε))` style cap.
+- [ ] C3. Refactor pipeline loop to stop on gap `< ε` or max iteration exceeded.
+- [ ] C4. Add early-stop trigger when potential drop stays below target floor (`1/m^{o(1)}` practical proxy).
+- [ ] C5. Add periodic rebuild call every 25 iterations to force chain refresh.
+- [ ] C6. Set `McfOptions::approx_factor` default to `0.2` and thread it into all scaling/IPM contexts.
+- [ ] C7. Add test `test_iteration_optimization` with large random instances and convergence bound checks.
+
+#### Phase D — Explicit Appendix C scaling reductions
+- [ ] D1. In `scaling/`, add `reduce_to_polynomial_costs(costs, U, C)` returning reduced costs + log metadata.
+- [ ] D2. Implement cost reduction formula `c' = c / 2^k` style with tracked `k` per phase.
+- [ ] D3. Add `reduce_to_polynomial_capacities(capacities, demands)` with phased halving and metadata.
+- [ ] D4. Refactor scaled solver entrypoint to call reductions before IPM pipeline.
+- [ ] D5. Add `unscale_flow(scaled_flow, log_factors)` and verify integral recovery/overflow safety.
+- [ ] D6. Add test `test_scaling_reductions` with very large `U`/`C` and exactness cross-check.
+
+#### Phase E — Telemetry and convergence verification
+- [ ] E1. Extend `IpmStats` with `potential_drops`, `newton_step_norms`, `convergence_gap`, `total_iters`.
+- [ ] E2. Log drop and norm on every accepted step in one-step function.
+- [ ] E3. Add cumulative-drop assertion path for debug/profile builds.
+- [ ] E4. Implement `verify_almost_linear_iters(m, stats)` with configurable practical bound.
+- [ ] E5. Merge IPM stats with dynamic oracle/chain metrics into public `SolverStats`/`IpmSummary`.
+- [ ] E6. Add `test_ipm_telemetry` including JSON export snapshot validation.
+
+#### Phase F — End-to-end pipeline and fallback behavior
+- [ ] F1. Implement `run_full_ipm` orchestration: init → iterate (oracle/chain/rebuilding) → rounding → unscale.
+- [ ] F2. Add fallback path to SSP when non-convergence (`iters > 2 * max_iters` or persistent no-improvement).
+- [ ] F3. Update public `min_cost_flow_edges` path to default enhanced IPM for larger graphs (`m > 100`).
+- [ ] F4. Add integration test `integration_enhanced_ipm` for mixed-size and large-scale instances.
+- [ ] F5. Add benchmark `ipm_almost_linear` and compare against SSP baseline with reproducible seeds.
+
+#### Phase G — Mandatory validation command sequence (triage before merge)
+- [ ] G1. Python package install check: `uv pip install -e . --system`.
+- [ ] G2. Python tests: `pytest`.
+- [ ] G3. Python tests (quiet): `pytest -q tests/`.
+- [ ] G4. Formatting: `cargo fmt --check` (run from `rust/`).
+- [ ] G5. Full Rust tests with strict warnings policy (or equivalent `-D warnings` enforcement).
+- [ ] G6. Clippy strict: `cargo clippy --workspace -- -D warnings`.
+- [ ] G7. Required targeted tests:
+  - [ ] `cargo test -q -p almo-mcf-core --test min_ratio`
+  - [ ] `cargo test -q -p almo-mcf-core --test min_ratio_queries`
+  - [ ] `cargo test -q -p almo-mcf-core --test test_rebuilding_game_rounds`
+  - [ ] `cargo test -q -p almo-mcf-core --test test_oracle_rebuilding_integration`
+  - [ ] `cargo test -q -p almo-mcf-core --test test_dynamic_embeddings`
+  - [ ] `cargo test -q -p almo-mcf-core --test test_derandomized_reproducibility`
+  - [ ] `cargo test -q -p almo-mcf-core --test test_amortized_guarantees`
+
+#### Completion gate
+- [ ] Mark this section complete only when every box above is green and all paper-linked invariants/tests are passing.

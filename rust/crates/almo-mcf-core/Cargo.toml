@@ -38,3 +38,7 @@ harness = false
 [[bench]]
 name = "rebuilding_amortized"
 harness = false
+
+[[bench]]
+name = "ipm_almost_linear"
+harness = false

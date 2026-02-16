@@ -7,6 +7,7 @@ pub mod numerics;
 pub mod rebuilding;
 pub mod rounding;
 pub mod scaling;
+pub mod solver;
 pub mod spanner;
 pub mod trees;
 
@@ -65,6 +66,10 @@ pub struct IpmSummary {
     pub numerical_clamping_occurred: bool,
     pub max_barrier_value: f64,
     pub min_residual_seen: f64,
+    pub potential_drops: Vec<f64>,
+    pub newton_step_norms: Vec<f64>,
+    pub convergence_gap: f64,
+    pub total_iters: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -136,7 +141,7 @@ impl Default for McfOptions {
             threads: 1,
             alpha: None,
             use_ipm: None,
-            approx_factor: 0.1,
+            approx_factor: 0.2,
             deterministic: true,
             chain_deterministic: true,
             derandomized: true,
@@ -512,6 +517,10 @@ impl IpmSummary {
             numerical_clamping_occurred: aggregate.clamping_occurred(),
             max_barrier_value: aggregate.max_barrier_value,
             min_residual_seen: aggregate.min_residual_seen,
+            potential_drops: stats.potential_drops.clone(),
+            newton_step_norms: stats.newton_step_norms.clone(),
+            convergence_gap: stats.convergence_gap,
+            total_iters: stats.total_iters,
         }
     }
 }
