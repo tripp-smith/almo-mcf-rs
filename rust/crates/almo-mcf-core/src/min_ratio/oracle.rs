@@ -1,3 +1,5 @@
+use crate::data_structures::decremental_spanner::DecrementalSpanner as HierDecrementalSpanner;
+use crate::graph::{Graph, NodeId};
 use crate::min_ratio::{
     score_edge_cycle, select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery,
     TreeError,
@@ -74,6 +76,7 @@ pub struct DynamicOracle {
     last_edge_count: usize,
     last_gradients: Vec<f64>,
     last_lengths: Vec<f64>,
+    decremental_spanner: HierDecrementalSpanner,
 }
 
 impl DynamicOracle {
@@ -100,6 +103,7 @@ impl DynamicOracle {
             last_edge_count: 0,
             last_gradients: Vec::new(),
             last_lengths: Vec::new(),
+            decremental_spanner: HierDecrementalSpanner::default(),
         }
     }
 
@@ -138,6 +142,19 @@ impl DynamicOracle {
         self.last_edge_count = query.tails.len();
         self.last_gradients = query.gradients.to_vec();
         self.last_lengths = query.lengths.to_vec();
+
+        let mut graph = Graph::new(node_count);
+        for edge_id in 0..query.tails.len() {
+            let _ = graph.add_edge(
+                NodeId(query.tails[edge_id] as usize),
+                NodeId(query.heads[edge_id] as usize),
+                0.0,
+                1.0,
+                query.lengths[edge_id],
+            );
+        }
+        self.decremental_spanner
+            .initialize(&graph, 2.0, 2.0, self.max_levels);
         Ok(())
     }
 
@@ -145,6 +162,7 @@ impl DynamicOracle {
         &mut self,
         query: OracleQuery<'_>,
     ) -> Result<Option<CycleCandidate>, TreeError> {
+        self.decremental_spanner.update(query.iter, &[], &[]);
         if self.tree_chain.levels.is_empty()
             || self.last_node_count != query.node_count
             || self.last_edge_count != query.tails.len()

@@ -8,7 +8,7 @@ pub(crate) mod min_cost_flow;
 pub mod residual;
 pub mod undirected;
 
-pub use core::{Edge, EdgeId, Graph, NodeId};
+pub use core::{CoreEdge, CoreGraph, Edge, EdgeId, Graph, NodeId};
 
 #[derive(Debug, Clone)]
 pub struct IdMapping {

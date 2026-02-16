@@ -1,3 +1,4 @@
+pub mod data_structures;
 pub mod graph;
 pub mod hsfc;
 pub mod ipm;
@@ -128,7 +129,7 @@ impl Default for McfOptions {
             gap_exponent: ipm::DEFAULT_GAP_EXPONENT,
             gap_threshold: None,
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
-            oracle_mode: OracleMode::Hybrid,
+            oracle_mode: OracleMode::Dynamic,
             threads: 1,
             alpha: None,
             use_ipm: None,
@@ -269,6 +270,9 @@ pub fn min_cost_flow_exact(
     opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
     let mut opts = opts.clone();
+    if matches!(opts.strategy, Strategy::FullDynamic) {
+        opts.oracle_mode = OracleMode::Dynamic;
+    }
     if opts.deterministic {
         opts.threads = 1;
     }

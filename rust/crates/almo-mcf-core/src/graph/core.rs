@@ -1,4 +1,5 @@
 use crate::numerics::EPSILON;
+use crate::trees::forest::DynamicForest as LowStretchForest;
 use crate::McfError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,6 +31,22 @@ pub struct Graph {
     edges: Vec<Edge>,
     outgoing: Vec<Vec<EdgeId>>,
     incoming: Vec<Vec<EdgeId>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreEdge {
+    pub tail: NodeId,
+    pub head: NodeId,
+    pub lifted_length: f64,
+    pub lifted_gradient: f64,
+    pub base_edge: EdgeId,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoreGraph {
+    pub node_count: usize,
+    pub component_of: Vec<usize>,
+    pub edges: Vec<CoreEdge>,
 }
 
 impl Graph {
@@ -204,5 +221,60 @@ impl Graph {
             }
         }
         true
+    }
+
+    pub fn build_core_graph(
+        &self,
+        forest: &LowStretchForest,
+        stretch_overestimates: &[f64],
+    ) -> CoreGraph {
+        // Definition 6.7 / CoreConstruct: contract tree components induced by F.
+        let mut component_of = vec![usize::MAX; self.node_count()];
+        let mut next_component = 0usize;
+        for node in 0..self.node_count() {
+            if component_of[node] != usize::MAX {
+                continue;
+            }
+            let root = forest.tree.root.get(node).copied().unwrap_or(node);
+            for (other, comp) in component_of.iter_mut().enumerate() {
+                if *comp == usize::MAX
+                    && forest.tree.root.get(other).copied().unwrap_or(other) == root
+                {
+                    *comp = next_component;
+                }
+            }
+            next_component += 1;
+        }
+
+        let mut core_edges = Vec::new();
+        for (eid, edge) in self.edges() {
+            let u = component_of[edge.tail.0];
+            let v = component_of[edge.head.0];
+            if u == v {
+                continue;
+            }
+            // Definition 6.7: \hat{\ell}_C(\hat e)=\tilde{str}_e \cdot \ell_e.
+            let str_e = stretch_overestimates
+                .get(eid.0)
+                .copied()
+                .unwrap_or(1.0)
+                .max(1.0);
+            let lifted_length = str_e * edge.cost.abs().max(1.0);
+            // Lemma 7.4-inspired lifted gradient term g_e + <g,path_T> (surrogate).
+            let lifted_gradient = edge.cost;
+            core_edges.push(CoreEdge {
+                tail: NodeId(u),
+                head: NodeId(v),
+                lifted_length,
+                lifted_gradient,
+                base_edge: eid,
+            });
+        }
+
+        CoreGraph {
+            node_count: next_component.max(1),
+            component_of,
+            edges: core_edges,
+        }
     }
 }
