@@ -4,6 +4,7 @@ pub mod hsfc;
 pub mod ipm;
 pub mod min_ratio;
 pub mod numerics;
+pub mod rebuilding;
 pub mod rounding;
 pub mod scaling;
 pub mod spanner;
@@ -104,6 +105,7 @@ pub struct McfOptions {
     pub approx_factor: f64,
     pub deterministic: bool,
     pub chain_deterministic: bool,
+    pub derandomized: bool,
     pub deterministic_seed: Option<u64>,
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
@@ -137,6 +139,7 @@ impl Default for McfOptions {
             approx_factor: 0.1,
             deterministic: true,
             chain_deterministic: true,
+            derandomized: true,
             deterministic_seed: None,
             initial_flow: None,
             initial_perturbation: 0.0,
@@ -241,6 +244,16 @@ impl McfProblem {
         }
         Some((self.tails[edge_id], self.heads[edge_id]))
     }
+}
+
+pub fn run_with_rebuilding_bench(
+    problem: &McfProblem,
+    opts: &McfOptions,
+) -> Result<IpmSummary, McfError> {
+    let solution = min_cost_flow_exact(problem, opts)?;
+    solution.ipm_stats.ok_or_else(|| {
+        McfError::InvalidInput("IPM stats unavailable for rebuilding benchmark".to_string())
+    })
 }
 
 fn initialize_thread_pool(opts: &McfOptions) {

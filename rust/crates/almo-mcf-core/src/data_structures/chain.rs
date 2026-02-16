@@ -1,6 +1,8 @@
 use crate::data_structures::decremental_spanner::DecrementalSpanner;
+use crate::data_structures::embedding::{DynamicEmbedding, EmbeddedPath};
 use crate::data_structures::lsd::{LowStretchDecomposition, MultiplicativeWeights, Path};
 use crate::graph::{EdgeId, Graph};
+use crate::rebuilding::RebuildingGame;
 
 #[derive(Debug, Clone, Default)]
 pub struct HierarchicalShortestPathForest {
@@ -54,6 +56,7 @@ pub struct DataStructureChain {
     pub hsfc: HierarchicalShortestPathForest,
     pub spanner: DecrementalSpanner,
     pub mw_weights: MultiplicativeWeights,
+    pub embedding: DynamicEmbedding,
     deterministic_seed: Option<u64>,
 }
 
@@ -69,6 +72,7 @@ impl DataStructureChain {
             lsd,
             hsfc: HierarchicalShortestPathForest::default(),
             spanner,
+            embedding: DynamicEmbedding::new(params.levels.max(1)),
             deterministic_seed: if params.deterministic {
                 params.deterministic_seed.or(Some(0))
             } else {
@@ -81,6 +85,7 @@ impl DataStructureChain {
         &mut self,
         circulation: &Circulation,
         t: usize,
+        rebuilding_game: &mut RebuildingGame,
     ) -> (Cycle, f64) {
         let updates = self
             .lsd
@@ -90,13 +95,24 @@ impl DataStructureChain {
             edges: circulation.candidate_edges.clone(),
             stretch: (self.lsd.sampling_params.n.max(2) as f64).ln().powi(3),
         };
-        let _weighted = self.lsd.apply_multiplicative_weights(&[path], &[1.0]);
+        let _weighted = self
+            .lsd
+            .apply_multiplicative_weights(std::slice::from_ref(&path), &[1.0]);
+        let embedded: EmbeddedPath =
+            self.embedding
+                .embed_dynamic_path(&path, 0, &circulation.candidate_edges);
         self.mw_weights = self.lsd.multiplicative_weights.clone();
         self.hsfc
             .routed_paths
             .push(circulation.candidate_edges.clone());
 
-        let quality = (-(updates.len() as f64)).exp();
+        let quality = (-(updates.len() as f64)).exp() / embedded.distortion.max(1.0);
+        let is_win = quality >= (-(self.lsd.sampling_params.m as f64).ln().powf(7.0 / 8.0)).exp();
+        let decision = rebuilding_game.play_round(t, circulation.candidate_edges.len(), is_win);
+        for level in decision.levels_to_rebuild {
+            self.rebuild_level(level);
+        }
+
         (
             Cycle {
                 edges: circulation.candidate_edges.clone(),
@@ -105,8 +121,21 @@ impl DataStructureChain {
         )
     }
 
-    pub fn set_deterministic_mode(&mut self, seed: Option<u64>) -> bool {
-        self.deterministic_seed = Some(seed.unwrap_or(0));
+    pub fn rebuild_level(&mut self, level: usize) {
+        let idx = level.min(self.embedding.embedding_maps.len().saturating_sub(1));
+        if let Some(buffer) = self.embedding.update_buffers.get_mut(idx) {
+            buffer.clear();
+        }
+    }
+
+    pub fn set_deterministic_mode(
+        &mut self,
+        seed: Option<u64>,
+        rebuilding_game: &mut RebuildingGame,
+    ) -> bool {
+        let resolved = seed.unwrap_or(0);
+        self.deterministic_seed = Some(resolved);
+        rebuilding_game.enable_derandomization(resolved);
         true
     }
 

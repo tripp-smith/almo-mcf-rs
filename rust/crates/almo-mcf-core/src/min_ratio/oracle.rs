@@ -1,9 +1,11 @@
+use crate::data_structures::chain::{ChainParams, Circulation, DataStructureChain};
 use crate::data_structures::decremental_spanner::DecrementalSpanner as HierDecrementalSpanner;
 use crate::graph::{Graph, NodeId};
 use crate::min_ratio::{
     score_edge_cycle, select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery,
     TreeError,
 };
+use crate::rebuilding::RebuildingGame;
 use crate::spanner::DynamicSpanner;
 use crate::trees::dynamic::{DynamicTreeChain, DynamicTreeChainConfig};
 use crate::trees::TreeBuildMode;
@@ -77,6 +79,8 @@ pub struct DynamicOracle {
     last_gradients: Vec<f64>,
     last_lengths: Vec<f64>,
     decremental_spanner: HierDecrementalSpanner,
+    chain: Option<DataStructureChain>,
+    rebuilding_game: RebuildingGame,
 }
 
 impl DynamicOracle {
@@ -104,6 +108,8 @@ impl DynamicOracle {
             last_gradients: Vec::new(),
             last_lengths: Vec::new(),
             decremental_spanner: HierDecrementalSpanner::default(),
+            chain: None,
+            rebuilding_game: RebuildingGame::new(2, 1, 3),
         }
     }
 
@@ -155,6 +161,15 @@ impl DynamicOracle {
         }
         self.decremental_spanner
             .initialize(&graph, 2.0, 2.0, self.max_levels);
+        self.chain = Some(DataStructureChain::initialize_chain(
+            &graph,
+            ChainParams::default(),
+        ));
+        self.rebuilding_game =
+            RebuildingGame::new(graph.node_count(), graph.edge_count(), self.max_levels);
+        if self.deterministic {
+            self.rebuilding_game.enable_derandomization(0);
+        }
         Ok(())
     }
 
@@ -163,6 +178,22 @@ impl DynamicOracle {
         query: OracleQuery<'_>,
     ) -> Result<Option<CycleCandidate>, TreeError> {
         self.decremental_spanner.update(query.iter, &[], &[]);
+        let adversarial_levels = self.rebuilding_game.handle_adversarial_update(&[]);
+        if let Some(chain) = self.chain.as_mut() {
+            for level in adversarial_levels {
+                chain.rebuild_level(level);
+            }
+            let circulation = Circulation {
+                candidate_edges: (0..query.tails.len().min(32))
+                    .map(crate::graph::EdgeId)
+                    .collect(),
+            };
+            let _ = chain.query_min_ratio_cycle_chain(
+                &circulation,
+                query.iter,
+                &mut self.rebuilding_game,
+            );
+        }
         if self.tree_chain.levels.is_empty()
             || self.last_node_count != query.node_count
             || self.last_edge_count != query.tails.len()

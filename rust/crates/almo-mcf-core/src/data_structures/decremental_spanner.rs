@@ -1,3 +1,5 @@
+use crate::data_structures::embedding::DynamicEmbedding;
+use crate::data_structures::lsd::Path;
 use crate::graph::{EdgeId, Graph, NodeId};
 use crate::spanner::{DecrementalSpanner as InnerSpanner, DecrementalSpannerParams};
 use crate::trees::LowStretchTree;
@@ -19,6 +21,7 @@ pub struct DecrementalSpanner {
     gamma_l: f64,
     gamma_c: f64,
     l: usize,
+    embedding: DynamicEmbedding,
 }
 
 impl Default for DecrementalSpanner {
@@ -31,6 +34,7 @@ impl Default for DecrementalSpanner {
             gamma_l: 1.0,
             gamma_c: 1.0,
             l: 1,
+            embedding: DynamicEmbedding::new(1),
         }
     }
 }
@@ -41,6 +45,7 @@ impl DecrementalSpanner {
         self.gamma_c = gamma_c.max(1.0);
         self.l = l.max(1);
         self.node_count = g.node_count();
+        self.embedding = DynamicEmbedding::new(self.l);
         self.current_t = 0;
 
         let mut tails = Vec::with_capacity(g.edge_count());
@@ -117,7 +122,7 @@ impl DecrementalSpanner {
         // Paper 1 Alg 5.1 line 3
         self.sparsify_core(j);
         // Paper 1 Alg 5.1 line 4
-        self.re_embed_path(j);
+        self.re_embed_path(j, deletions);
         // Paper 1 Alg 5.1 lines 5-18 are represented by the batch mutation below,
         // which applies projected deletions/splits and leaves the level state
         // consistent for subsequent path queries.
@@ -187,5 +192,15 @@ impl DecrementalSpanner {
         }
     }
 
-    fn re_embed_path(&mut self, _j: usize) {}
+    fn re_embed_path(&mut self, j: usize, deletions: &[EdgeId]) {
+        let path = Path {
+            edges: deletions.to_vec(),
+            stretch: (self.node_count.max(2) as f64).ln().max(1.0),
+        };
+        let _ = self.embedding.embed_dynamic_path(&path, j, deletions);
+    }
+
+    pub fn amortize_update_cost(&self, total_updates: usize) -> f64 {
+        self.embedding.amortize_update_cost(total_updates)
+    }
 }
