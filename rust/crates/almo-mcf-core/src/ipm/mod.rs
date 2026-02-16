@@ -7,8 +7,10 @@ use crate::{McfError, McfOptions, McfProblem, OracleMode, Strategy};
 use std::time::Instant;
 
 mod potential;
+mod rebuilding;
 mod search;
 mod termination;
+use rebuilding::{Outcome, RebuildingGame};
 
 pub use potential::{Potential, Residuals};
 pub use termination::{
@@ -76,6 +78,23 @@ pub enum IpmRunKind {
 pub struct IpmRunContext {
     pub kind: IpmRunKind,
     pub round: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HiddenStableFlow {
+    pub width: Vec<f64>,
+    pub monotonicity_counter: usize,
+}
+
+impl HiddenStableFlow {
+    pub fn record_width(&mut self, w_t: f64) {
+        self.width.push(w_t);
+        self.monotonicity_counter = self.monotonicity_counter.saturating_add(1);
+    }
+
+    pub fn width_sum(&self) -> f64 {
+        self.width.iter().sum()
+    }
 }
 
 pub fn initialize_feasible_flow(problem: &McfProblem) -> Result<FeasibleFlow, McfError> {
@@ -254,6 +273,8 @@ pub(crate) fn run_ipm_with_lower_bound(
         .copied()
         .fold(1.0_f64, |acc, value| acc.max(value.abs()).max(1.0));
     let edge_count = problem.edge_count().max(1);
+    let mut hidden_stable_flow = HiddenStableFlow::default();
+    let mut rebuilding_game = RebuildingGame::new(3);
 
     for iter in 0..opts.max_iters {
         if let Some(limit) = opts.time_limit_ms {
@@ -341,9 +362,29 @@ pub(crate) fn run_ipm_with_lower_bound(
             break;
         }
 
+        let w_t = 100.0
+            * (1.0
+                + gradient
+                    .iter()
+                    .zip(lengths.iter())
+                    .map(|(g, l)| (g * l).abs())
+                    .sum::<f64>());
+        hidden_stable_flow.record_width(w_t);
         let cycle_start = Instant::now();
         let best = if !using_fallback {
             if let Some(oracle) = dynamic_oracle.as_mut() {
+                let width_threshold = (edge_count as f64).powf(0.1) * w_t.max(1.0);
+                if hidden_stable_flow.width_sum() > width_threshold {
+                    rebuilding_game.record(0, Outcome::Loss);
+                    if rebuilding_game.force_rebuild_level().is_some()
+                        && matches!(opts.oracle_mode, OracleMode::Hybrid)
+                    {
+                        using_fallback = true;
+                        stats.oracle_fallback_count = stats.oracle_fallback_count.saturating_add(1);
+                    }
+                } else {
+                    rebuilding_game.record(0, Outcome::Win);
+                }
                 let best = oracle
                     .best_cycle(
                         iter,
