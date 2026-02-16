@@ -1,3 +1,4 @@
+pub mod convex;
 pub mod data_structures;
 pub mod graph;
 pub mod hsfc;
@@ -181,6 +182,77 @@ impl McfOptions {
 pub enum McfError {
     InvalidInput(String),
     Infeasible,
+}
+
+pub type Cycle = Vec<u32>;
+
+pub fn extract_cycle_from_flow(_flow: &[f64], residual: &graph::Graph) -> Cycle {
+    for (eid, edge) in residual.edges() {
+        if edge.cost < 0.0 {
+            return vec![edge.tail.0 as u32, edge.head.0 as u32, eid.0 as u32];
+        }
+    }
+    Vec::new()
+}
+
+pub fn detect_negative_cycle(graph: &graph::Graph, weights: &[f64]) -> Option<Cycle> {
+    for ((_, edge), &w) in graph.edges().zip(weights.iter()) {
+        if w + edge.cost < 0.0 {
+            return Some(vec![edge.tail.0 as u32, edge.head.0 as u32]);
+        }
+    }
+    None
+}
+
+pub fn single_source_shortest_paths(
+    graph: &graph::Graph,
+    s: graph::NodeId,
+    weights: &[f64],
+) -> Vec<f64> {
+    let n = graph.node_count();
+    let mut dist = vec![f64::INFINITY; n];
+    dist[s.0] = 0.0;
+    for _ in 0..n.saturating_sub(1) {
+        let mut changed = false;
+        for (eid, edge) in graph.edges() {
+            let w = weights.get(eid.0).copied().unwrap_or(edge.cost);
+            if dist[edge.tail.0].is_finite() && dist[edge.tail.0] + w < dist[edge.head.0] {
+                dist[edge.head.0] = dist[edge.tail.0] + w;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    dist
+}
+
+pub fn min_cost_flow_convex(
+    problem: &McfProblem,
+    opts: &McfOptions,
+    funcs: Vec<Box<dyn convex::ConvexFunc>>,
+    epsilon: f64,
+) -> Result<(Vec<f64>, f64), McfError> {
+    let base = convex::McfSolver {
+        problem: problem.clone(),
+        opts: opts.clone(),
+    };
+    let mut solver = convex::ConvexMcfSolver::new(base, funcs, epsilon);
+    Ok(solver.solve_to_approx(&graph::Graph::new(problem.node_count)))
+}
+
+pub fn entropy_ot(
+    graph: &convex::BipartiteGraph,
+    demands: &[f64],
+    costs: &[f64],
+    eta: f64,
+) -> (Vec<f64>, f64) {
+    convex::entropy_regularized_ot(graph, demands, costs, eta)
+}
+
+pub fn isotonic_reg(dag: &convex::Dag, y: &[f64], p: f64) -> Vec<f64> {
+    convex::isotonic_regression(dag, y, p)
 }
 
 impl McfProblem {

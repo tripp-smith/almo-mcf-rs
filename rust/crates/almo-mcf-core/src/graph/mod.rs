@@ -10,6 +10,24 @@ pub mod undirected;
 
 pub use core::{CoreEdge, CoreGraph, Edge, EdgeId, Graph, NodeId};
 
+pub fn split_vertices_for_caps(graph: &Graph, v_caps: &[f64]) -> Graph {
+    let n = graph.node_count();
+    let mut split = Graph::new(2 * n);
+    for v in 0..n {
+        let d = graph.demand(NodeId(v)).unwrap_or(0.0);
+        let _ = split.set_demand(NodeId(2 * v), d);
+        let _ = split.set_demand(NodeId(2 * v + 1), 0.0);
+        let cap = v_caps.get(v).copied().unwrap_or(f64::INFINITY);
+        let _ = split.add_edge(NodeId(2 * v), NodeId(2 * v + 1), 0.0, cap, 0.0);
+    }
+    for (_, edge) in graph.edges() {
+        let tail = NodeId(2 * edge.tail.0 + 1);
+        let head = NodeId(2 * edge.head.0);
+        let _ = split.add_edge(tail, head, edge.lower, edge.upper, edge.cost);
+    }
+    split
+}
+
 #[derive(Debug, Clone)]
 pub struct IdMapping {
     internal_to_external: Vec<u32>,
