@@ -682,6 +682,10 @@ fn run_ipm_edges(
         numerical_clamping_occurred: aggregate.clamping_occurred(),
         max_barrier_value: aggregate.max_barrier_value,
         min_residual_seen: aggregate.min_residual_seen,
+        potential_drops: ipm_result.stats.potential_drops.clone(),
+        newton_step_norms: ipm_result.stats.newton_step_norms.clone(),
+        convergence_gap: ipm_result.stats.convergence_gap,
+        total_iters: ipm_result.stats.total_iters,
     };
     let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((
