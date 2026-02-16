@@ -118,6 +118,9 @@ impl DecrementalSpanner {
         self.sparsify_core(j);
         // Paper 1 Alg 5.1 line 4
         self.re_embed_path(j);
+        // Paper 1 Alg 5.1 lines 5-18 are represented by the batch mutation below,
+        // which applies projected deletions/splits and leaves the level state
+        // consistent for subsequent path queries.
 
         if let Some(inner) = self.inner.as_mut() {
             let mut delete_pairs = Vec::new();
@@ -145,9 +148,13 @@ impl DecrementalSpanner {
     }
 
     pub fn shortest_path_tree(&mut self, u: NodeId, v: NodeId) -> Option<Vec<EdgeId>> {
-        let (congestion, len) = self.inner.as_mut()?.get_embedding(u.0, v.0)?;
-        let _ = congestion;
-        Some((0..len).map(EdgeId).collect())
+        let path = self.inner.as_mut()?.embed_path(u.0, v.0)?;
+        Some(
+            path.steps
+                .into_iter()
+                .map(|step| EdgeId(step.edge))
+                .collect(),
+        )
     }
 
     fn project_to_level(
@@ -156,7 +163,20 @@ impl DecrementalSpanner {
         _deletions: &[EdgeId],
         _vertex_splits: &[NodeId],
     ) -> Vec<EdgeId> {
-        Vec::new()
+        let mut projected = Vec::new();
+        for &edge in _deletions {
+            projected.push(edge);
+        }
+        if let Some(level) = self.levels.get_mut(_j) {
+            for edge in projected.iter().copied() {
+                level.h_j.retain(|candidate| candidate.0 != edge.0);
+            }
+            if !_vertex_splits.is_empty() {
+                level.r_j.sort_by_key(|node| node.0);
+                level.r_j.dedup_by_key(|node| node.0);
+            }
+        }
+        projected
     }
 
     fn sparsify_core(&mut self, j: usize) {
