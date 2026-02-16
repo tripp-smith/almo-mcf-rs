@@ -2,6 +2,7 @@ use almo_mcf_core::data_structures::chain::{ChainParams, Circulation, DataStruct
 use almo_mcf_core::data_structures::lsd::{LowStretchDecomposition, Path};
 use almo_mcf_core::data_structures::sparsified_core::SparsifiedCoreGraph;
 use almo_mcf_core::graph::{EdgeId, Graph, NodeId};
+use almo_mcf_core::rebuilding::RebuildingGame;
 use almo_mcf_core::trees::forest::DynamicForest;
 
 fn make_graph(n: usize, m: usize) -> Graph {
@@ -82,7 +83,8 @@ fn test_full_chain_query() {
     let circulation = Circulation {
         candidate_edges: (0..100).map(EdgeId).collect(),
     };
-    let (cycle, quality) = chain.query_min_ratio_cycle_chain(&circulation, 32);
+    let mut game = RebuildingGame::new(graph.node_count(), graph.edge_count(), 3);
+    let (cycle, quality) = chain.query_min_ratio_cycle_chain(&circulation, 32, &mut game);
     assert_eq!(cycle.edges.len(), circulation.candidate_edges.len());
     assert!(quality.is_finite());
 }
@@ -92,13 +94,15 @@ fn test_deterministic_chain_reproducibility() {
     let graph = make_graph(30, 120);
     let mut chain_a = DataStructureChain::initialize_chain(&graph, ChainParams::default());
     let mut chain_b = DataStructureChain::initialize_chain(&graph, ChainParams::default());
-    assert!(chain_a.set_deterministic_mode(Some(7)));
-    assert!(chain_b.set_deterministic_mode(Some(7)));
+    let mut game_a = RebuildingGame::new(graph.node_count(), graph.edge_count(), 3);
+    let mut game_b = RebuildingGame::new(graph.node_count(), graph.edge_count(), 3);
+    assert!(chain_a.set_deterministic_mode(Some(7), &mut game_a));
+    assert!(chain_b.set_deterministic_mode(Some(7), &mut game_b));
     let circulation = Circulation {
         candidate_edges: vec![EdgeId(0), EdgeId(1), EdgeId(2)],
     };
-    let (ca, qa) = chain_a.query_min_ratio_cycle_chain(&circulation, 5);
-    let (cb, qb) = chain_b.query_min_ratio_cycle_chain(&circulation, 5);
+    let (ca, qa) = chain_a.query_min_ratio_cycle_chain(&circulation, 5, &mut game_a);
+    let (cb, qb) = chain_b.query_min_ratio_cycle_chain(&circulation, 5, &mut game_b);
     assert_eq!(ca.edges, cb.edges);
     assert_eq!(qa, qb);
     let sa = chain_a.log_chain_stats(5);

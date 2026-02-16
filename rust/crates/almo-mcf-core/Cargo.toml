@@ -34,3 +34,7 @@ harness = false
 [[bench]]
 name = "decremental_spanner"
 harness = false
+
+[[bench]]
+name = "rebuilding_amortized"
+harness = false
