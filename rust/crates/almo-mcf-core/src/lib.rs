@@ -77,11 +77,14 @@ pub struct IpmSummary {
     pub scaling_log_factors: Vec<f64>,
     pub solver_mode_label: String,
     pub numerical_clamps_applied: usize,
+    pub cycle_quality_factor: Option<f64>,
+    pub rebuild_cost: f64,
+    pub update_savings: f64,
 }
 
 #[derive(Debug, Clone)]
 pub enum Strategy {
-    FullDynamic,
+    FullDynamic { rebuild_threshold: usize },
     PeriodicRebuild { rebuild_every: usize },
 }
 
@@ -384,7 +387,7 @@ pub fn min_cost_flow_exact(
     opts: &McfOptions,
 ) -> Result<McfSolution, McfError> {
     let mut opts = opts.clone();
-    if matches!(opts.strategy, Strategy::FullDynamic) {
+    if matches!(opts.strategy, Strategy::FullDynamic { .. }) {
         opts.oracle_mode = OracleMode::Dynamic;
     }
     if opts.deterministic {
@@ -626,6 +629,9 @@ impl IpmSummary {
             scaling_log_factors: Vec::new(),
             solver_mode_label: "full_dynamic_convex".to_string(),
             numerical_clamps_applied: aggregate.total_clamps(),
+            cycle_quality_factor: None,
+            rebuild_cost: 0.0,
+            update_savings: 0.0,
         }
     }
 }
@@ -866,7 +872,9 @@ mod tests {
         let demand = vec![0_i64; node_count];
         let problem = McfProblem::new(tails, heads, lower, upper, cost, demand).unwrap();
         let opts = McfOptions {
-            strategy: Strategy::FullDynamic,
+            strategy: Strategy::FullDynamic {
+                rebuild_threshold: 25,
+            },
             max_iters: 50,
             ..McfOptions::default()
         };
@@ -888,7 +896,9 @@ mod tests {
         )
         .unwrap();
         let opts = McfOptions {
-            strategy: Strategy::FullDynamic,
+            strategy: Strategy::FullDynamic {
+                rebuild_threshold: 25,
+            },
             ..McfOptions::default()
         };
         let solution = min_cost_flow_exact(&problem, &opts).unwrap();

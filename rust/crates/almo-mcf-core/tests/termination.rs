@@ -49,7 +49,9 @@ fn terminates_by_gap_with_loose_threshold() {
         gap_threshold: Some(1e6),
         tolerance: 0.0,
         max_iters: 50,
-        strategy: Strategy::FullDynamic,
+        strategy: Strategy::FullDynamic {
+            rebuild_threshold: 25,
+        },
         ..McfOptions::default()
     };
     let solution = min_cost_flow_exact(&problem, &opts).unwrap();

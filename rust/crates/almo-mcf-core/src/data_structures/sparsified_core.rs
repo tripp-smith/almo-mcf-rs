@@ -1,6 +1,8 @@
 use crate::data_structures::decremental_spanner::DecrementalSpanner;
 use crate::data_structures::lsd::LowStretchDecomposition;
-use crate::graph::{CoreGraph, EdgeId};
+use crate::data_structures::lsd::Path;
+use crate::graph::{CoreGraph, EdgeId, Graph};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct SparseEdge {
@@ -30,6 +32,13 @@ pub struct SparsifiedCoreGraph {
     pub core_edges: Vec<SparseEdge>,
     pub embeddings: Vec<Embedding>,
     pub sparsification_factor: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Sparsifier {
+    pub core_graph: Graph,
+    pub embedding_map: HashMap<EdgeId, Vec<EdgeId>>,
+    pub beta: f64,
 }
 
 impl SparsifiedCoreGraph {
@@ -96,5 +105,42 @@ impl SparsifiedCoreGraph {
         iter: usize,
     ) {
         spanner.update(iter, deletions, &[]);
+    }
+}
+
+impl Sparsifier {
+    pub fn new(core_graph: Graph, beta: f64) -> Self {
+        Self {
+            core_graph,
+            embedding_map: HashMap::new(),
+            beta: beta.max(1.0),
+        }
+    }
+
+    pub fn sparsify(&mut self, deterministic: bool) {
+        let step = self.beta.round().max(1.0) as usize;
+        for (idx, _) in self.core_graph.edges().enumerate() {
+            if deterministic || idx % step == 0 {
+                self.embedding_map.insert(EdgeId(idx), vec![EdgeId(idx)]);
+            }
+        }
+    }
+
+    pub fn embed_path(&self, path: &Path, epsilon: f64) -> Result<EmbeddedPath, &'static str> {
+        if path.edges.is_empty() {
+            return Err("empty path");
+        }
+        let mut out = Vec::new();
+        for edge in &path.edges {
+            if let Some(mapped) = self.embedding_map.get(edge) {
+                out.extend(mapped);
+            }
+        }
+        let distortion = (1.0 + epsilon.max(0.0)).max(1.0);
+        Ok(EmbeddedPath {
+            edges: out.clone(),
+            length: out.len() as f64 * distortion,
+            distortion,
+        })
     }
 }

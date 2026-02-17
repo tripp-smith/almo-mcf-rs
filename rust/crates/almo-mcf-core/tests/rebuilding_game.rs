@@ -13,7 +13,9 @@ fn test_rebuilding_game() {
     )
     .unwrap();
     let opts = McfOptions {
-        strategy: Strategy::FullDynamic,
+        strategy: Strategy::FullDynamic {
+            rebuild_threshold: 25,
+        },
         oracle_mode: OracleMode::Dynamic,
         max_iters: 20,
         ..McfOptions::default()

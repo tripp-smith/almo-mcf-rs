@@ -259,7 +259,7 @@ pub(crate) fn run_ipm_with_lower_bound(
     let mut dynamic_oracle = None;
     let fallback_rebuild_every = match opts.strategy {
         Strategy::PeriodicRebuild { rebuild_every } => rebuild_every,
-        Strategy::FullDynamic => 25,
+        Strategy::FullDynamic { rebuild_threshold } => rebuild_threshold,
     };
     let approx_kappa = opts
         .approx_factor

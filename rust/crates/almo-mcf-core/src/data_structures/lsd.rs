@@ -85,6 +85,8 @@ pub struct LowStretchDecomposition {
     edge_weights: Vec<f64>,
 }
 
+pub type LowStretchDecomp = LowStretchDecomposition;
+
 impl LowStretchDecomposition {
     pub fn new(n: usize, m: usize, beta: f64) -> Self {
         let level_count = (n.max(2) as f64).log2().ceil() as usize;
@@ -139,6 +141,27 @@ impl LowStretchDecomposition {
             let _ = self.apply_multiplicative_weights(&[synthetic_path], &weights);
         }
 
+        updates
+    }
+
+    pub fn update_weights(&mut self, deleted_edges: &[EdgeId]) -> WeightedLsd {
+        let base_stretch = (self.sampling_params.n.max(2) as f64).ln().max(1.0);
+        let paths: Vec<Path> = deleted_edges
+            .iter()
+            .copied()
+            .map(|e| Path {
+                edges: vec![e],
+                stretch: base_stretch,
+            })
+            .collect();
+        self.apply_multiplicative_weights(&paths, &vec![1.0; deleted_edges.len()])
+    }
+
+    pub fn handle_edge_deletion(&mut self, edge: EdgeId, graph: &Graph) -> Vec<ClusterUpdate> {
+        let updates = self.update_decomposition(&[edge], 1);
+        let p = self.levels.first().map(|level| level.p_j).unwrap_or(1.0);
+        let (clusters, _) = Self::sample_and_cluster(graph, p, self.sampling_params.beta);
+        self.clusters = clusters;
         updates
     }
 

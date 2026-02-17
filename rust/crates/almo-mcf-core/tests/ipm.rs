@@ -58,7 +58,9 @@ fn ipm_full_dynamic_cycle_query_runs() {
     let opts = McfOptions {
         tolerance: 1e-6,
         max_iters: 25,
-        strategy: Strategy::FullDynamic,
+        strategy: Strategy::FullDynamic {
+            rebuild_threshold: 25,
+        },
         ..McfOptions::default()
     };
     let result = run_ipm(&problem, &opts).unwrap();

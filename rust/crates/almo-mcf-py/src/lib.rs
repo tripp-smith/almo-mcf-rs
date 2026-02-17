@@ -209,7 +209,9 @@ fn build_options(
     if let Some(mode) = strategy {
         let normalized = mode.to_ascii_lowercase();
         opts.strategy = match normalized.as_str() {
-            "full_dynamic" | "full-dynamic" | "fulldynamic" => Strategy::FullDynamic,
+            "full_dynamic" | "full-dynamic" | "fulldynamic" => Strategy::FullDynamic {
+                rebuild_threshold: rebuild_every.unwrap_or(25),
+            },
             "periodic_rebuild" | "periodic-rebuild" | "periodicrebuild" => {
                 let rebuild_every = rebuild_every.unwrap_or(25);
                 Strategy::PeriodicRebuild { rebuild_every }
@@ -707,6 +709,9 @@ fn run_ipm_edges(
         scaling_log_factors: Vec::new(),
         solver_mode_label: "full_dynamic_convex".to_string(),
         numerical_clamps_applied: aggregate.total_clamps(),
+        cycle_quality_factor: None,
+        rebuild_cost: 0.0,
+        update_savings: 0.0,
     };
     let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((

@@ -1,6 +1,7 @@
 use crate::data_structures::decremental_spanner::DecrementalSpanner;
 use crate::data_structures::embedding::{DynamicEmbedding, EmbeddedPath};
 use crate::data_structures::lsd::{LowStretchDecomposition, MultiplicativeWeights, Path};
+use crate::data_structures::sparsified_core::Sparsifier;
 use crate::graph::{EdgeId, Graph};
 use crate::rebuilding::RebuildingGame;
 
@@ -17,6 +18,25 @@ pub struct Circulation {
 #[derive(Debug, Clone, Default)]
 pub struct Cycle {
     pub edges: Vec<EdgeId>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ApproxCycle {
+    pub edges: Vec<EdgeId>,
+    pub ratio: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RoutedCirc {
+    pub routed_edges: Vec<EdgeId>,
+    pub routed_length: f64,
+}
+
+#[derive(Debug, Clone)]
+pub enum ChainLevel {
+    Lsd,
+    Spanner,
+    Embedder,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +77,8 @@ pub struct DataStructureChain {
     pub spanner: DecrementalSpanner,
     pub mw_weights: MultiplicativeWeights,
     pub embedding: DynamicEmbedding,
+    pub chain: Vec<ChainLevel>,
+    pub sparsifier: Option<Sparsifier>,
     deterministic_seed: Option<u64>,
 }
 
@@ -73,6 +95,8 @@ impl DataStructureChain {
             hsfc: HierarchicalShortestPathForest::default(),
             spanner,
             embedding: DynamicEmbedding::new(params.levels.max(1)),
+            chain: vec![ChainLevel::Lsd, ChainLevel::Spanner, ChainLevel::Embedder],
+            sparsifier: None,
             deterministic_seed: if params.deterministic {
                 params.deterministic_seed.or(Some(0))
             } else {
@@ -126,6 +150,45 @@ impl DataStructureChain {
         if let Some(buffer) = self.embedding.update_buffers.get_mut(idx) {
             buffer.clear();
         }
+    }
+
+    pub fn route_circulation(&mut self, circ: &Circulation) -> RoutedCirc {
+        let path = Path {
+            edges: circ.candidate_edges.clone(),
+            stretch: (self.lsd.sampling_params.n.max(2) as f64).ln().max(1.0),
+        };
+        let embedded = self.embedding.embed_dynamic_path(&path, 0, &[]);
+        RoutedCirc {
+            routed_edges: embedded.lifted_edges,
+            routed_length: path.edges.len() as f64 * embedded.distortion.max(1.0),
+        }
+    }
+
+    pub fn find_min_ratio_cycle(
+        &mut self,
+        reduced_costs: &[f64],
+        circulation: &Circulation,
+    ) -> ApproxCycle {
+        let routed = self.route_circulation(circulation);
+        let total = routed
+            .routed_edges
+            .iter()
+            .map(|e| reduced_costs.get(e.0).copied().unwrap_or(0.0))
+            .sum::<f64>();
+        let denom = routed.routed_edges.len().max(1) as f64;
+        ApproxCycle {
+            edges: routed.routed_edges,
+            ratio: total / denom,
+        }
+    }
+
+    pub fn update_after_deletion(&mut self, deleted: &[EdgeId]) {
+        let _ = self.lsd.update_decomposition(deleted, 1);
+        self.spanner.update(1, deleted, &[]);
+    }
+
+    pub fn verify_cycle_bounds(cycle: &ApproxCycle, true_min: f64) -> bool {
+        (cycle.ratio - true_min).abs() <= 0.1_f64.max(true_min.abs() * 0.1)
     }
 
     pub fn set_deterministic_mode(
