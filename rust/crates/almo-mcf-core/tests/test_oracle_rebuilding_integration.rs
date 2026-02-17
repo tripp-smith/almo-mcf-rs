@@ -23,7 +23,7 @@ fn test_oracle_rebuilding_integration() {
     let heads: Vec<u32> = g.edges().map(|(_, e)| e.head.0 as u32).collect();
     let lengths: Vec<f64> = g.edges().map(|(_, e)| e.cost.max(1.0)).collect();
     let gradients = vec![0.1; tails.len()];
-    let mut oracle = DynamicOracle::new(0, true);
+    let mut oracle = DynamicOracle::new(0, true, Some(42));
     let mut found = 0usize;
     for iter in 0..200 {
         let q = OracleQuery {

@@ -2,8 +2,8 @@ use crate::data_structures::chain::{ChainParams, Circulation, DataStructureChain
 use crate::data_structures::decremental_spanner::DecrementalSpanner as HierDecrementalSpanner;
 use crate::graph::{Graph, NodeId};
 use crate::min_ratio::{
-    score_edge_cycle, select_better_candidate, CycleCandidate, MinRatioOracle, OracleQuery,
-    TreeError,
+    score_edge_cycle, select_better_candidate, stable_select_edge, CycleCandidate, MinRatioOracle,
+    OracleQuery, TreeError,
 };
 use crate::rebuilding::RebuildingGame;
 use crate::spanner::DynamicSpanner;
@@ -74,6 +74,7 @@ pub struct DynamicOracle {
     pub max_levels: usize,
     pub trees_per_level: usize,
     pub spanner_degree: usize,
+    pub tie_break_hash: Option<u64>,
     last_node_count: usize,
     last_edge_count: usize,
     last_gradients: Vec<f64>,
@@ -84,7 +85,7 @@ pub struct DynamicOracle {
 }
 
 impl DynamicOracle {
-    pub fn new(seed: u64, deterministic: bool) -> Self {
+    pub fn new(seed: u64, deterministic: bool, tie_break_hash: Option<u64>) -> Self {
         let config = if deterministic {
             DynamicTreeChainConfig::deterministic(3, 1)
         } else {
@@ -103,6 +104,7 @@ impl DynamicOracle {
             max_levels: 3,
             trees_per_level: 1,
             spanner_degree: 4,
+            tie_break_hash: tie_break_hash.or(Some(seed)),
             last_node_count: 0,
             last_edge_count: 0,
             last_gradients: Vec::new(),
@@ -216,6 +218,57 @@ impl DynamicOracle {
         if edge_count == 0 {
             return Ok(None);
         }
+        if self.deterministic {
+            let mut best: Option<CycleCandidate> = None;
+            let mut tie_edges: Vec<usize> = Vec::new();
+            for edge_id in 0..edge_count {
+                let Some(candidate) = score_edge_cycle(
+                    tree,
+                    edge_id,
+                    query.tails,
+                    query.heads,
+                    query.gradients,
+                    query.lengths,
+                ) else {
+                    continue;
+                };
+                match best {
+                    Some(ref current) if (candidate.ratio - current.ratio).abs() <= 1e-12 => {
+                        tie_edges.push(
+                            candidate
+                                .cycle_edges
+                                .first()
+                                .map(|(id, _)| *id)
+                                .unwrap_or(edge_id),
+                        );
+                        tie_edges.push(
+                            current
+                                .cycle_edges
+                                .first()
+                                .map(|(id, _)| *id)
+                                .unwrap_or(edge_id),
+                        );
+                        let selected =
+                            stable_select_edge(&tie_edges, self.tie_break_hash).unwrap_or(edge_id);
+                        if selected
+                            == candidate
+                                .cycle_edges
+                                .first()
+                                .map(|(id, _)| *id)
+                                .unwrap_or(edge_id)
+                        {
+                            best = Some(candidate);
+                        }
+                        tie_edges.clear();
+                    }
+                    Some(current) => {
+                        best = Some(select_better_candidate(current, candidate));
+                    }
+                    None => best = Some(candidate),
+                }
+            }
+            return Ok(best);
+        }
         let candidates: Vec<usize> = (0..edge_count).collect();
         let threads = rayon::current_num_threads().max(1);
         let chunk_size = (edge_count / threads).max(64);
@@ -311,12 +364,13 @@ pub enum OracleEngine {
 impl OracleEngine {
     pub fn new(seed: u64, rebuild_every: usize, deterministic: bool, use_dynamic: bool) -> Self {
         if use_dynamic {
-            OracleEngine::Dynamic(Box::new(DynamicOracle::new(seed, deterministic)))
+            OracleEngine::Dynamic(Box::new(DynamicOracle::new(seed, deterministic, None)))
         } else {
             OracleEngine::Static(Box::new(MinRatioOracle::new_with_mode(
                 seed,
                 rebuild_every.max(1),
                 deterministic,
+                None,
                 None,
             )))
         }
@@ -334,7 +388,7 @@ impl OracleEngine {
                     oracle.find_approx_min_ratio_cycle(query)
                 } else {
                     let mut fallback =
-                        MinRatioOracle::new_with_mode(0, 25, oracle.deterministic, None);
+                        MinRatioOracle::new_with_mode(0, 25, oracle.deterministic, None, None);
                     fallback.best_cycle(query)
                 }
             }

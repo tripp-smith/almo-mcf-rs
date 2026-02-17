@@ -104,6 +104,16 @@ impl BarrierClampStats {
     }
 }
 
+pub fn check_stability(duals: &[f64], slacks: &[f64]) -> bool {
+    if duals.len() != slacks.len() {
+        return false;
+    }
+    duals
+        .iter()
+        .zip(slacks.iter())
+        .all(|(d, s)| d.is_finite() && s.is_finite() && (d - s).abs() <= 1e6)
+}
+
 #[inline]
 fn clamp_min(value: f64, min_value: f64) -> f64 {
     if value < min_value {
@@ -709,5 +719,10 @@ mod tests {
             assert_close(upper_delta[idx], expected_upper, 1e-12);
             assert_close(lower_delta[idx], expected_lower, 1e-12);
         }
+    }
+    #[test]
+    fn test_stability_bounds() {
+        assert!(check_stability(&[1.0, 2.0], &[1.2, 1.5]));
+        assert!(!check_stability(&[1.0, 4e7], &[1.2, 1.5]));
     }
 }

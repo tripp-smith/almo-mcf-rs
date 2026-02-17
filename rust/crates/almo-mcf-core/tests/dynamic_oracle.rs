@@ -40,8 +40,8 @@ fn dynamic_oracle_matches_baseline_ratio() {
     let (tails, heads) = random_graph(42, node_count, edge_count);
     let (lengths, gradients) = random_values(7, edge_count);
 
-    let mut dynamic = DynamicOracle::new(1, true);
-    let mut baseline = MinRatioOracle::new_with_mode(1, 1, true, None);
+    let mut dynamic = DynamicOracle::new(1, true, Some(42));
+    let mut baseline = MinRatioOracle::new_with_mode(1, 1, true, None, None);
     baseline.enable_spanner_embeddings(false);
 
     let query = OracleQuery {
@@ -71,7 +71,7 @@ fn dynamic_oracle_handles_updates() {
     let edge_count = 120;
     let (tails, heads) = random_graph(123, node_count, edge_count);
     let (mut lengths, mut gradients) = random_values(55, edge_count);
-    let mut dynamic = DynamicOracle::new(3, true);
+    let mut dynamic = DynamicOracle::new(3, true, Some(42));
 
     let query = OracleQuery {
         iter: 0,

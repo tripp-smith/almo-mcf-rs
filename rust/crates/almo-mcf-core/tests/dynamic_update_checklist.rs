@@ -47,7 +47,7 @@ fn test_decremental_spanner_update() {
 #[test]
 fn test_cycle_oracle_dynamic_mode() {
     let (tails, heads, lengths, gradients) = random_graph(200, 800, 11);
-    let mut oracle = DynamicOracle::new(1, true);
+    let mut oracle = DynamicOracle::new(1, true, Some(42));
     let q = OracleQuery {
         iter: 0,
         node_count: 200,
@@ -86,7 +86,7 @@ fn test_core_graph_lift_invariants() {
 #[test]
 fn test_cycle_quality_bounds() {
     let (tails, heads, lengths, gradients) = random_graph(100, 500, 71);
-    let mut oracle = DynamicOracle::new(5, true);
+    let mut oracle = DynamicOracle::new(5, true, Some(42));
     for run in 0..50 {
         let q = OracleQuery {
             iter: run,
