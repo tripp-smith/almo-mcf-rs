@@ -166,6 +166,7 @@ fn build_options(
     }
     if let Some(value) = deterministic_seed {
         opts.deterministic_seed = Some(value);
+        opts.tie_break_hash = Some(value);
     }
     if let Some(value) = threads {
         opts.threads = value;
@@ -326,6 +327,17 @@ fn stats_to_dict(
         dict.set_item("scaling_log_factors", summary.scaling_log_factors)?;
         dict.set_item("solver_mode_detail", summary.solver_mode_label.as_str())?;
         dict.set_item("numerical_clamps_applied", summary.numerical_clamps_applied)?;
+        dict.set_item("derandomization_mode", summary.derandomization_mode)?;
+        dict.set_item("tie_break_usages", summary.tie_break_usages)?;
+        dict.set_item("stability_violations", summary.stability_violations)?;
+        dict.set_item(
+            "sparsification_choices",
+            summary
+                .sparsification_choices
+                .iter()
+                .map(|entry| format!("{}:{}", entry.phase, entry.selected_edge_id))
+                .collect::<Vec<_>>(),
+        )?;
     }
     Ok(dict.to_object(py))
 }
@@ -712,6 +724,10 @@ fn run_ipm_edges(
         cycle_quality_factor: None,
         rebuild_cost: 0.0,
         update_savings: 0.0,
+        derandomization_mode: opts.deterministic,
+        sparsification_choices: ipm_result.stats.sparsification_choices.clone(),
+        tie_break_usages: ipm_result.stats.tie_break_usages,
+        stability_violations: ipm_result.stats.stability_violations,
     };
     let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((

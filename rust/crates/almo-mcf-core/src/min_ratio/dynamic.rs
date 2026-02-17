@@ -147,7 +147,7 @@ impl TreeChainLevel {
         deterministic: bool,
     ) -> Self {
         Self {
-            oracle: MinRatioOracle::new_with_mode(seed, rebuild_every, deterministic, None),
+            oracle: MinRatioOracle::new_with_mode(seed, rebuild_every, deterministic, None, None),
             instability_budget: 0,
             max_instability,
             last_rebuild: 0,

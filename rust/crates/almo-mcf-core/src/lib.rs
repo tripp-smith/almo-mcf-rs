@@ -40,6 +40,12 @@ pub struct McfSolution {
 }
 
 #[derive(Debug, Clone)]
+pub struct ChoiceLog {
+    pub phase: String,
+    pub selected_edge_id: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct IpmSummary {
     pub iterations: usize,
     pub final_gap: f64,
@@ -80,6 +86,10 @@ pub struct IpmSummary {
     pub cycle_quality_factor: Option<f64>,
     pub rebuild_cost: f64,
     pub update_savings: f64,
+    pub derandomization_mode: bool,
+    pub sparsification_choices: Vec<ChoiceLog>,
+    pub tie_break_usages: usize,
+    pub stability_violations: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +133,7 @@ pub struct McfOptions {
     pub derandomized: bool,
     pub randomized_oracle_prob: Option<f64>,
     pub deterministic_seed: Option<u64>,
+    pub tie_break_hash: Option<u64>,
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
     pub use_scaling: Option<bool>,
@@ -158,6 +169,7 @@ impl Default for McfOptions {
             derandomized: true,
             randomized_oracle_prob: None,
             deterministic_seed: Some(42),
+            tie_break_hash: Some(42),
             initial_flow: None,
             initial_perturbation: 0.0,
             use_scaling: None,
@@ -194,6 +206,7 @@ impl McfOptions {
         self.derandomized = true;
         self.seed = seed;
         self.deterministic_seed = Some(seed);
+        self.tie_break_hash = Some(seed);
         self.threads = 1;
     }
 
@@ -632,6 +645,10 @@ impl IpmSummary {
             cycle_quality_factor: None,
             rebuild_cost: 0.0,
             update_savings: 0.0,
+            derandomization_mode: opts.deterministic,
+            sparsification_choices: Vec::new(),
+            tie_break_usages: 0,
+            stability_violations: 0,
         }
     }
 }

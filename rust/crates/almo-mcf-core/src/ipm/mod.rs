@@ -3,7 +3,7 @@ use crate::min_ratio::dynamic::FullDynamicOracle;
 use crate::min_ratio::oracle::{DynamicUpdateOracle, SparseFlowDelta};
 use crate::min_ratio::{MinRatioOracle, OracleQuery};
 use crate::numerics::barrier::BarrierClampStats;
-use crate::{McfError, McfOptions, McfProblem, OracleMode, Strategy};
+use crate::{ChoiceLog, McfError, McfOptions, McfProblem, OracleMode, Strategy};
 use std::time::Instant;
 
 mod potential;
@@ -49,6 +49,9 @@ pub struct IpmStats {
     pub newton_step_norms: Vec<f64>,
     pub convergence_gap: f64,
     pub total_iters: usize,
+    pub stability_violations: usize,
+    pub sparsification_choices: Vec<ChoiceLog>,
+    pub tie_break_usages: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -271,6 +274,7 @@ pub(crate) fn run_ipm_with_lower_bound(
                 fallback_rebuild_every,
                 opts.deterministic,
                 opts.deterministic_seed,
+                opts.tie_break_hash,
             ));
         }
         OracleMode::Dynamic => {
@@ -294,6 +298,7 @@ pub(crate) fn run_ipm_with_lower_bound(
                 fallback_rebuild_every,
                 opts.deterministic,
                 opts.deterministic_seed,
+                opts.tie_break_hash,
             ));
             let dynamic_seed = if opts.deterministic {
                 opts.deterministic_seed.unwrap_or(0)
@@ -336,6 +341,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         newton_step_norms: Vec::new(),
         convergence_gap: f64::INFINITY,
         total_iters: 0,
+        stability_violations: 0,
+        sparsification_choices: Vec::new(),
+        tie_break_usages: 0,
     };
     let mut termination = IpmTermination::IterationLimit;
     let mut using_fallback = matches!(opts.oracle_mode, OracleMode::Fallback);
@@ -363,6 +371,13 @@ pub(crate) fn run_ipm_with_lower_bound(
         let barrier_start = Instant::now();
         let (gradient, lengths, residuals, clamp_stats) =
             compute_gradient_and_lengths(&potential, &cost, &flow, &lower, &upper);
+        let stable = crate::numerics::barrier::check_stability(&gradient, &residuals.lower);
+        if !stable {
+            stats.stability_violations = stats.stability_violations.saturating_add(1);
+            if !matches!(opts.oracle_mode, OracleMode::Fallback) {
+                using_fallback = true;
+            }
+        }
         stats
             .barrier_times_ms
             .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
@@ -448,6 +463,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         hidden_stable_flow.record_width(w_t);
         let cycle_start = Instant::now();
         let best = if !using_fallback {
+            if opts.deterministic {
+                stats.tie_break_usages = stats.tie_break_usages.saturating_add(1);
+            }
             if let Some(oracle) = dynamic_oracle.as_mut() {
                 let width_threshold = (edge_count as f64).powf(0.1) * w_t.max(1.0);
                 if hidden_stable_flow.width_sum() > width_threshold {
@@ -511,6 +529,18 @@ pub(crate) fn run_ipm_with_lower_bound(
             stats.iterations = iter;
             break;
         };
+        if opts.deterministic {
+            let selected_edge_id = best
+                .cycle_edges
+                .first()
+                .map(|(edge_id, _)| *edge_id)
+                .unwrap_or(0);
+            stats.sparsification_choices.push(ChoiceLog {
+                phase: "min_ratio".to_string(),
+                selected_edge_id,
+            });
+        }
+
         last_oracle_ratio = Some(best.ratio);
 
         if best.ratio >= -opts.tolerance {

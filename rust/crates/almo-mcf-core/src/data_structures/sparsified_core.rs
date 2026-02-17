@@ -41,6 +41,20 @@ pub struct Sparsifier {
     pub beta: f64,
 }
 
+fn deterministic_edge_key(edge_id: EdgeId) -> usize {
+    edge_id.0
+}
+
+pub fn lex_embed_path(path: &Path, _spanner: &DecrementalSpanner) -> EmbeddedPath {
+    let mut edges = path.edges.clone();
+    edges.sort_by_key(|edge| edge.0);
+    EmbeddedPath {
+        length: edges.len() as f64,
+        distortion: 1.0,
+        edges,
+    }
+}
+
 impl SparsifiedCoreGraph {
     pub fn sparsify_core_graph(
         core: &CoreGraph,
@@ -119,9 +133,17 @@ impl Sparsifier {
 
     pub fn sparsify(&mut self, deterministic: bool) {
         let step = self.beta.round().max(1.0) as usize;
-        for (idx, _) in self.core_graph.edges().enumerate() {
-            if deterministic || idx % step == 0 {
-                self.embedding_map.insert(EdgeId(idx), vec![EdgeId(idx)]);
+        let mut ids: Vec<EdgeId> = self.core_graph.edges().map(|(id, _)| id).collect();
+        if deterministic {
+            ids.sort_by_key(|edge_id| deterministic_edge_key(*edge_id));
+            for edge_id in ids {
+                self.embedding_map.insert(edge_id, vec![edge_id]);
+            }
+            return;
+        }
+        for (idx, edge_id) in ids.into_iter().enumerate() {
+            if idx % step == 0 {
+                self.embedding_map.insert(edge_id, vec![edge_id]);
             }
         }
     }
@@ -142,5 +164,21 @@ impl Sparsifier {
             length: out.len() as f64 * distortion,
             distortion,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lex_embedding() {
+        let path = Path {
+            edges: vec![EdgeId(5), EdgeId(1), EdgeId(3)],
+            stretch: 1.0,
+        };
+        let spanner = DecrementalSpanner::default();
+        let embedded = lex_embed_path(&path, &spanner);
+        assert_eq!(embedded.edges, vec![EdgeId(1), EdgeId(3), EdgeId(5)]);
     }
 }

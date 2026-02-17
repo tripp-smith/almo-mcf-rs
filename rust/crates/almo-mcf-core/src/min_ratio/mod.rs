@@ -35,6 +35,7 @@ pub struct MinRatioOracle {
     pub deterministic: bool,
     /// Optional deterministic seed used only for stable tie-breaking.
     pub deterministic_seed: Option<u64>,
+    pub tie_break_hash: Option<u64>,
     pub rebuild_every: usize,
     pub last_rebuild: usize,
     pub tree: Option<LowStretchTree>,
@@ -55,6 +56,7 @@ impl MinRatioOracle {
             seed,
             deterministic: false,
             deterministic_seed: None,
+            tie_break_hash: None,
             rebuild_every,
             last_rebuild: 0,
             tree: None,
@@ -75,10 +77,12 @@ impl MinRatioOracle {
         rebuild_every: usize,
         deterministic: bool,
         deterministic_seed: Option<u64>,
+        tie_break_hash: Option<u64>,
     ) -> Self {
         Self {
             deterministic,
             deterministic_seed,
+            tie_break_hash: tie_break_hash.or(deterministic_seed),
             ..Self::new(seed, rebuild_every)
         }
     }
@@ -347,12 +351,49 @@ impl MinRatioOracle {
             query.lengths,
         );
         match (best, tree_best) {
-            (Some(left), Some(right)) => Some(select_better_candidate(left, right)),
+            (Some(left), Some(right)) => {
+                if self.deterministic && (left.ratio - right.ratio).abs() <= 1e-12 {
+                    let l = left
+                        .cycle_edges
+                        .first()
+                        .map(|(id, _)| *id)
+                        .unwrap_or(usize::MAX);
+                    let r = right
+                        .cycle_edges
+                        .first()
+                        .map(|(id, _)| *id)
+                        .unwrap_or(usize::MAX);
+                    let selected = stable_select_edge(&[l, r], self.tie_break_hash).unwrap_or(l);
+                    if selected == l {
+                        Some(left)
+                    } else {
+                        Some(right)
+                    }
+                } else {
+                    Some(select_better_candidate(left, right))
+                }
+            }
             (Some(left), None) => Some(left),
             (None, Some(right)) => Some(right),
             (None, None) => None,
         }
     }
+}
+
+fn mix64(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+pub(crate) fn stable_select_edge(edges: &[usize], tie_break_hash: Option<u64>) -> Option<usize> {
+    let seed = tie_break_hash.unwrap_or(42);
+    edges.iter().copied().min_by_key(|edge_id| {
+        let h = mix64(seed ^ (*edge_id as u64));
+        (*edge_id, h)
+    })
 }
 
 fn cycle_candidate_key(candidate: &CycleCandidate) -> (f64, usize) {
@@ -673,7 +714,7 @@ mod tests {
         let heads = vec![1, 2, 2, 0];
         let gradients = vec![1.0, -3.0, 2.0, -1.0];
         let lengths = vec![2.0, 1.0, 4.0, 3.0];
-        let mut oracle = MinRatioOracle::new_with_mode(17, 1, true, None);
+        let mut oracle = MinRatioOracle::new_with_mode(17, 1, true, None, None);
         let best_first = oracle
             .best_cycle(OracleQuery {
                 iter: 0,
@@ -784,5 +825,14 @@ mod tests {
             cycle_candidate_key(&best_parallel),
             cycle_candidate_key(&best_serial)
         );
+    }
+    #[test]
+    fn test_stable_tie_break() {
+        let edges = vec![7, 3, 9, 3];
+        let first = stable_select_edge(&edges, Some(42)).unwrap();
+        for _ in 0..5 {
+            assert_eq!(stable_select_edge(&edges, Some(42)).unwrap(), first);
+        }
+        assert_eq!(first, 3);
     }
 }
