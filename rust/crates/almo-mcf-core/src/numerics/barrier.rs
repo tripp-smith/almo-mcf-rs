@@ -299,99 +299,14 @@ pub fn clamped_gradient_term(
     clamped
 }
 
-#[cfg(feature = "simd")]
-pub fn barrier_inverse_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
-    use std::simd::{Simd, SimdFloat};
-
-    const LANES: usize = 4;
-    let mut result = vec![0.0; x.len()];
-    let alpha_vec = Simd::splat(-alpha);
-    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
-    let max_log = Simd::splat(DEFAULT_MAX_LOG);
-    let chunks = x.len() / LANES;
-    for i in 0..chunks {
-        let base = i * LANES;
-        let vec = Simd::from_slice(&x[base..base + LANES]);
-        let log_val = (vec.ln() * alpha_vec).simd_max(min_log).simd_min(max_log);
-        let powered = log_val.exp();
-        powered.write_to_slice(&mut result[base..base + LANES]);
-    }
-    for idx in (chunks * LANES)..x.len() {
-        result[idx] = x[idx].powf(-alpha);
-    }
-    result
-}
-
-#[cfg(not(feature = "simd"))]
 pub fn barrier_inverse_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
     x.iter().map(|&value| value.powf(-alpha)).collect()
 }
 
-#[cfg(feature = "simd")]
-pub fn barrier_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
-    use std::simd::{Simd, SimdFloat};
-
-    const LANES: usize = 4;
-    let mut result = vec![0.0; x.len()];
-    let alpha_vec = Simd::splat(alpha);
-    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
-    let max_log = Simd::splat(DEFAULT_MAX_LOG);
-    let chunks = x.len() / LANES;
-    for i in 0..chunks {
-        let base = i * LANES;
-        let vec = Simd::from_slice(&x[base..base + LANES]);
-        let log_val = (vec.ln() * alpha_vec).simd_max(min_log).simd_min(max_log);
-        let powered = log_val.exp();
-        powered.write_to_slice(&mut result[base..base + LANES]);
-    }
-    for idx in (chunks * LANES)..x.len() {
-        result[idx] = x[idx].powf(alpha);
-    }
-    result
-}
-
-#[cfg(not(feature = "simd"))]
 pub fn barrier_power_simd(x: &[f64], alpha: f64) -> Vec<f64> {
     x.iter().map(|&value| value.powf(alpha)).collect()
 }
 
-#[cfg(feature = "simd")]
-fn preprocess_deltas_simd(
-    flow: &[f64],
-    lower: &[f64],
-    upper: &[f64],
-    min_value: f64,
-) -> (Vec<f64>, Vec<f64>) {
-    use std::simd::{Simd, SimdFloat};
-
-    let lanes = 4;
-    let mut upper_delta = vec![0.0; flow.len()];
-    let mut lower_delta = vec![0.0; flow.len()];
-    let min_vec = Simd::splat(min_value);
-
-    let chunks = flow.len() / lanes;
-    for i in 0..chunks {
-        let base = i * lanes;
-        let flow_v = Simd::from_slice(&flow[base..base + lanes]);
-        let upper_v = Simd::from_slice(&upper[base..base + lanes]);
-        let lower_v = Simd::from_slice(&lower[base..base + lanes]);
-
-        let upper_delta_v = (upper_v - flow_v).simd_max(min_vec);
-        let lower_delta_v = (flow_v - lower_v).simd_max(min_vec);
-
-        upper_delta_v.write_to_slice(&mut upper_delta[base..base + lanes]);
-        lower_delta_v.write_to_slice(&mut lower_delta[base..base + lanes]);
-    }
-
-    for idx in (chunks * lanes)..flow.len() {
-        upper_delta[idx] = clamp_min(upper[idx] - flow[idx], min_value);
-        lower_delta[idx] = clamp_min(flow[idx] - lower[idx], min_value);
-    }
-
-    (upper_delta, lower_delta)
-}
-
-#[cfg(not(feature = "simd"))]
 fn preprocess_deltas_simd(
     flow: &[f64],
     lower: &[f64],
@@ -417,40 +332,6 @@ fn barrier_term_derivative(delta: f64, beta: f64) -> f64 {
     -clamped_gradient_term(delta, beta, &config, None)
 }
 
-#[cfg(feature = "simd")]
-fn barrier_lengths_simd_slice(
-    upper_delta: &[f64],
-    lower_delta: &[f64],
-    beta: f64,
-    output: &mut [f64],
-) {
-    use std::simd::{Simd, SimdFloat};
-
-    const LANES: usize = 4;
-    let beta_vec = Simd::splat(beta);
-    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
-    let max_log = Simd::splat(DEFAULT_MAX_LOG);
-    let chunks = output.len() / LANES;
-    for i in 0..chunks {
-        let base = i * LANES;
-        let upper_v = Simd::from_slice(&upper_delta[base..base + LANES]);
-        let lower_v = Simd::from_slice(&lower_delta[base..base + LANES]);
-        let upper_term = (upper_v.ln() * -beta_vec)
-            .simd_max(min_log)
-            .simd_min(max_log)
-            .exp();
-        let lower_term = (lower_v.ln() * -beta_vec)
-            .simd_max(min_log)
-            .simd_min(max_log)
-            .exp();
-        (upper_term + lower_term).write_to_slice(&mut output[base..base + LANES]);
-    }
-    for idx in (chunks * LANES)..output.len() {
-        output[idx] = barrier_term(upper_delta[idx], beta) + barrier_term(lower_delta[idx], beta);
-    }
-}
-
-#[cfg(not(feature = "simd"))]
 fn barrier_lengths_simd_slice(
     upper_delta: &[f64],
     lower_delta: &[f64],
@@ -465,44 +346,6 @@ fn barrier_lengths_simd_slice(
     }
 }
 
-#[cfg(feature = "simd")]
-fn barrier_gradient_simd_slice(
-    upper_delta: &[f64],
-    lower_delta: &[f64],
-    beta: f64,
-    output: &mut [f64],
-) {
-    use std::simd::{Simd, SimdFloat};
-
-    const LANES: usize = 4;
-    let beta_vec = Simd::splat(beta);
-    let min_log = Simd::splat(-DEFAULT_MAX_LOG);
-    let max_log = Simd::splat(DEFAULT_MAX_LOG);
-    let chunks = output.len() / LANES;
-    for i in 0..chunks {
-        let base = i * LANES;
-        let upper_v = Simd::from_slice(&upper_delta[base..base + LANES]);
-        let lower_v = Simd::from_slice(&lower_delta[base..base + LANES]);
-        let upper_term = (upper_v.ln() * -beta_vec)
-            .simd_max(min_log)
-            .simd_min(max_log)
-            .exp();
-        let lower_term = (lower_v.ln() * -beta_vec)
-            .simd_max(min_log)
-            .simd_min(max_log)
-            .exp();
-        let upper_grad = (beta_vec / upper_v) * upper_term;
-        let lower_grad = -(beta_vec / lower_v) * lower_term;
-        (upper_grad + lower_grad).write_to_slice(&mut output[base..base + LANES]);
-    }
-    for idx in (chunks * LANES)..output.len() {
-        let upper_term = -barrier_term_derivative(upper_delta[idx], beta);
-        let lower_term = barrier_term_derivative(lower_delta[idx], beta);
-        output[idx] = upper_term + lower_term;
-    }
-}
-
-#[cfg(not(feature = "simd"))]
 fn barrier_gradient_simd_slice(
     upper_delta: &[f64],
     lower_delta: &[f64],
