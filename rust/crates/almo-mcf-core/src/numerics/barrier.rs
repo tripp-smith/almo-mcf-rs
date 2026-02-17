@@ -104,6 +104,11 @@ impl BarrierClampStats {
     }
 }
 
+#[inline]
+pub fn clamp_log_value(x: f64) -> f64 {
+    x.clamp(-50.0, 50.0)
+}
+
 pub fn check_stability(duals: &[f64], slacks: &[f64]) -> bool {
     if duals.len() != slacks.len() {
         return false;
@@ -183,7 +188,7 @@ pub fn guarded_log_with_stats(
             stats.clamped_logs += 1;
         }
     }
-    clamped.ln()
+    clamp_log_value(clamped.ln())
 }
 
 pub fn guarded_inverse(x: f64, min_x: f64) -> f64 {

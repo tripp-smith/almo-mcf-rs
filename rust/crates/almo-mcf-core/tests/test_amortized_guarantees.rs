@@ -33,3 +33,18 @@ fn test_amortized_guarantees() {
         stats.win_rate_per_level.iter().sum::<f64>() / stats.win_rate_per_level.len() as f64;
     assert!(avg_win >= 0.5);
 }
+
+#[test]
+fn test_lazy_amortization() {
+    let graph = make_graph(200, 800);
+    let mut chain = DataStructureChain::initialize_chain(&graph, ChainParams::default());
+    let deletions: Vec<EdgeId> = (0..500).map(|i| EdgeId(i % graph.edge_count())).collect();
+    let start = std::time::Instant::now();
+    for chunk in deletions.chunks(10) {
+        chain.batch_update(chunk, &[]);
+    }
+    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let per_op = elapsed_ms / deletions.len() as f64;
+    let bound = (graph.edge_count() as f64).powf(0.1);
+    assert!(per_op < bound, "per-op {per_op:.4}ms, bound {bound:.4}");
+}
