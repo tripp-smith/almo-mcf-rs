@@ -71,6 +71,12 @@ pub struct IpmSummary {
     pub newton_step_norms: Vec<f64>,
     pub convergence_gap: f64,
     pub total_iters: usize,
+    pub chain_stretches: Vec<f64>,
+    pub rebuild_triggers: std::collections::HashMap<String, usize>,
+    pub derandomized_hash_collisions: usize,
+    pub scaling_log_factors: Vec<f64>,
+    pub solver_mode_label: String,
+    pub numerical_clamps_applied: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +118,7 @@ pub struct McfOptions {
     pub deterministic: bool,
     pub chain_deterministic: bool,
     pub derandomized: bool,
+    pub randomized_oracle_prob: Option<f64>,
     pub deterministic_seed: Option<u64>,
     pub initial_flow: Option<Vec<i64>>,
     pub initial_perturbation: f64,
@@ -131,7 +138,7 @@ pub struct McfOptions {
 impl Default for McfOptions {
     fn default() -> Self {
         Self {
-            seed: 0,
+            seed: 42,
             time_limit_ms: None,
             tolerance: 1e-9,
             max_iters: 10_000,
@@ -146,7 +153,8 @@ impl Default for McfOptions {
             deterministic: true,
             chain_deterministic: true,
             derandomized: true,
-            deterministic_seed: None,
+            randomized_oracle_prob: None,
+            deterministic_seed: Some(42),
             initial_flow: None,
             initial_perturbation: 0.0,
             use_scaling: None,
@@ -175,6 +183,20 @@ impl McfOptions {
             alpha_min: self.barrier_alpha_min,
             alpha_max: self.barrier_alpha_max,
         }
+    }
+
+    pub fn set_deterministic_mode(&mut self, seed: u64) {
+        self.deterministic = true;
+        self.chain_deterministic = true;
+        self.derandomized = true;
+        self.seed = seed;
+        self.deterministic_seed = Some(seed);
+        self.threads = 1;
+    }
+
+    pub fn enable_randomized_oracle(&mut self, prob: f64) {
+        self.randomized_oracle_prob = Some(prob.clamp(0.0, 1.0));
+        self.deterministic = false;
     }
 }
 
@@ -593,6 +615,17 @@ impl IpmSummary {
             newton_step_norms: stats.newton_step_norms.clone(),
             convergence_gap: stats.convergence_gap,
             total_iters: stats.total_iters,
+            chain_stretches: stats.instability_per_level.clone(),
+            rebuild_triggers: stats
+                .rebuild_counts
+                .iter()
+                .enumerate()
+                .map(|(level, count)| (format!("level_{level}"), *count))
+                .collect(),
+            derandomized_hash_collisions: 0,
+            scaling_log_factors: Vec::new(),
+            solver_mode_label: "full_dynamic_convex".to_string(),
+            numerical_clamps_applied: aggregate.total_clamps(),
         }
     }
 }
@@ -662,6 +695,22 @@ pub(crate) fn finalize_ipm_solution(
         solver_mode: SolverMode::Ipm,
     };
     Ok(solution)
+}
+
+pub fn run_repro_check(problem: &McfProblem, seed1: u64, seed2: u64) -> bool {
+    let mut opts_a = McfOptions::default();
+    opts_a.set_deterministic_mode(seed1);
+    let mut opts_b = McfOptions::default();
+    opts_b.set_deterministic_mode(seed2);
+
+    let Ok(sol_a) = min_cost_flow_exact(problem, &opts_a) else {
+        return false;
+    };
+    let Ok(sol_b) = min_cost_flow_exact(problem, &opts_b) else {
+        return false;
+    };
+
+    sol_a.flow == sol_b.flow && sol_a.cost == sol_b.cost
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ from typing import Iterable
 
 import networkx as nx
 
-from almo_mcf import min_cost_flow, min_cost_flow_cost
+from almo_mcf import min_cost_flow, min_cost_flow_cost, min_cost_flow_scaled
 
 
 def build_benchmark_graph(
@@ -92,11 +92,13 @@ def run_case(
     threads: list[int],
     deterministic: bool,
     plot: bool,
+    scaling_mode: str,
 ) -> None:
     graph = build_benchmark_graph(node_count, edge_count, max_capacity, max_cost, seed)
 
     def run_ipm(thread_count: int):
-        flow, stats = min_cost_flow(
+        solver = min_cost_flow_scaled if scaling_mode == "large" else min_cost_flow
+        flow, stats = solver(
             graph,
             use_ipm=True,
             strategy="periodic_rebuild",
@@ -143,6 +145,17 @@ def run_case(
         thread_results[threads[0]]["timings"] if threads else []
     )
     classic_timings = time_call(run_classic, runs)
+
+    if scaling_mode == "large":
+        # proxy check for near-linear behavior after scaling reduction
+        m = max(1, edge_count)
+        median_iters = summarize_metric(thread_results[threads[0]]["stats"], "iterations") if threads else 0.0
+        complexity_proxy = median_iters * max(thread_results[threads[0]]["median_time"], 1e-9) if threads else 0.0
+        bound = m ** 1.05
+        if complexity_proxy >= bound:
+            raise AssertionError(
+                f"scaled complexity proxy {complexity_proxy:.3g} exceeded m^1.05={bound:.3g}"
+            )
 
     print(
         f"nodes={node_count} edges={edge_count} "
@@ -209,14 +222,25 @@ def main() -> None:
     parser.add_argument("--capacity", type=int, nargs="+", default=[10, 50])
     parser.add_argument("--cost", type=int, nargs="+", default=[5, 20])
     parser.add_argument("--threads", type=int, nargs="+", default=[1, 4, 8, 16])
+    parser.add_argument("--scaling", choices=["off", "large"], default="off")
     parser.add_argument("--deterministic", action="store_true")
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
-    for node_count in args.nodes:
-        for edge_count in args.edges:
-            for max_capacity in args.capacity:
-                for max_cost in args.cost:
+    nodes = args.nodes
+    edges = args.edges
+    capacities = args.capacity
+    costs = args.cost
+    if args.scaling == "large":
+        nodes = [64]
+        edges = [512]
+        capacities = [2**40]
+        costs = [2**30]
+
+    for node_count in nodes:
+        for edge_count in edges:
+            for max_capacity in capacities:
+                for max_cost in costs:
                     run_case(
                         node_count,
                         edge_count,
@@ -227,6 +251,7 @@ def main() -> None:
                         args.threads,
                         args.deterministic,
                         not args.no_plot,
+                        args.scaling,
                     )
 
 
