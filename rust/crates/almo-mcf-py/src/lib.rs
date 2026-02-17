@@ -315,6 +315,15 @@ fn stats_to_dict(
         )?;
         dict.set_item("max_barrier_value", summary.max_barrier_value)?;
         dict.set_item("min_residual_seen", summary.min_residual_seen)?;
+        dict.set_item("chain_stretches", summary.chain_stretches)?;
+        dict.set_item("rebuild_triggers", summary.rebuild_triggers)?;
+        dict.set_item(
+            "derandomized_hash_collisions",
+            summary.derandomized_hash_collisions,
+        )?;
+        dict.set_item("scaling_log_factors", summary.scaling_log_factors)?;
+        dict.set_item("solver_mode_detail", summary.solver_mode_label.as_str())?;
+        dict.set_item("numerical_clamps_applied", summary.numerical_clamps_applied)?;
     }
     Ok(dict.to_object(py))
 }
@@ -686,6 +695,18 @@ fn run_ipm_edges(
         newton_step_norms: ipm_result.stats.newton_step_norms.clone(),
         convergence_gap: ipm_result.stats.convergence_gap,
         total_iters: ipm_result.stats.total_iters,
+        chain_stretches: ipm_result.stats.instability_per_level.clone(),
+        rebuild_triggers: ipm_result
+            .stats
+            .rebuild_counts
+            .iter()
+            .enumerate()
+            .map(|(level, count)| (format!("level_{level}"), *count))
+            .collect(),
+        derandomized_hash_collisions: 0,
+        scaling_log_factors: Vec::new(),
+        solver_mode_label: "full_dynamic_convex".to_string(),
+        numerical_clamps_applied: aggregate.total_clamps(),
     };
     let stats = stats_to_dict(py, SolverMode::Ipm, Some(summary))?;
     Ok((
