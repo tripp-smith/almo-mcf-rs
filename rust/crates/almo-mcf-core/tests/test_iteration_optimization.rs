@@ -61,6 +61,10 @@ fn test_ipm_convergence_tuning() {
         ..McfOptions::default()
     };
     let result = run_ipm(&problem, &opts).unwrap();
-    assert!(result.stats.iterations < 50, "iters={}", result.stats.iterations);
+    assert!(
+        result.stats.iterations < 50,
+        "iters={}",
+        result.stats.iterations
+    );
     assert!(result.stats.last_gap.is_finite());
 }
