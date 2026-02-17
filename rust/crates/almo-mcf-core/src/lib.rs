@@ -59,6 +59,8 @@ pub struct IpmSummary {
     pub cycle_scoring_ms: f64,
     pub barrier_compute_ms: f64,
     pub spanner_update_ms: f64,
+    pub amortized_spanner_update_ms: f64,
+    pub clamping_events: usize,
     pub termination: IpmTermination,
     pub oracle_mode: OracleMode,
     pub deterministic_mode_used: bool,
@@ -128,6 +130,8 @@ pub struct McfOptions {
     pub alpha: Option<f64>,
     pub use_ipm: Option<bool>,
     pub approx_factor: f64,
+    pub power_alpha: Option<f64>,
+    pub cycle_approx_kappa: f64,
     pub deterministic: bool,
     pub chain_deterministic: bool,
     pub derandomized: bool,
@@ -160,10 +164,12 @@ impl Default for McfOptions {
             gap_threshold: None,
             strategy: Strategy::PeriodicRebuild { rebuild_every: 25 },
             oracle_mode: OracleMode::Dynamic,
-            threads: 1,
+            threads: std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1)),
             alpha: None,
             use_ipm: None,
             approx_factor: 0.2,
+            power_alpha: None,
+            cycle_approx_kappa: 0.1,
             deterministic: true,
             chain_deterministic: true,
             derandomized: true,
@@ -467,6 +473,15 @@ fn should_use_scaling(problem: &McfProblem, opts: &McfOptions) -> bool {
     if opts.use_scaling == Some(false) {
         return false;
     }
+    let max_uc = problem
+        .upper
+        .iter()
+        .chain(problem.cost.iter())
+        .map(|v| (*v as i128).abs() as f64)
+        .fold(1.0_f64, f64::max);
+    if max_uc > 2f64.powi(40) {
+        return true;
+    }
     if should_use_classic(problem, opts) {
         return false;
     }
@@ -609,6 +624,8 @@ impl IpmSummary {
             cycle_scoring_ms: stats.cycle_times_ms.iter().sum(),
             barrier_compute_ms: stats.barrier_times_ms.iter().sum(),
             spanner_update_ms: stats.spanner_update_times_ms.iter().sum(),
+            amortized_spanner_update_ms: stats.amortized_spanner_update_ms,
+            clamping_events: stats.clamping_events,
             termination,
             oracle_mode: stats.oracle_mode,
             deterministic_mode_used: opts.deterministic,

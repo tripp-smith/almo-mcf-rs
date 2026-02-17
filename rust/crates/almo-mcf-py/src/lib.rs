@@ -291,6 +291,11 @@ fn stats_to_dict(
         dict.set_item("cycle_scoring_ms", summary.cycle_scoring_ms)?;
         dict.set_item("barrier_compute_ms", summary.barrier_compute_ms)?;
         dict.set_item("spanner_update_ms", summary.spanner_update_ms)?;
+        dict.set_item(
+            "amortized_spanner_update_ms",
+            summary.amortized_spanner_update_ms,
+        )?;
+        dict.set_item("clamping_events", summary.clamping_events)?;
         dict.set_item("last_duality_gap_proxy", summary.last_duality_gap_proxy)?;
         dict.set_item(
             "termination_gap_threshold",
@@ -687,6 +692,8 @@ fn run_ipm_edges(
         cycle_scoring_ms: ipm_result.stats.cycle_times_ms.iter().sum(),
         barrier_compute_ms: ipm_result.stats.barrier_times_ms.iter().sum(),
         spanner_update_ms: ipm_result.stats.spanner_update_times_ms.iter().sum(),
+        amortized_spanner_update_ms: ipm_result.stats.amortized_spanner_update_ms,
+        clamping_events: ipm_result.stats.clamping_events,
         termination: ipm_result.termination,
         oracle_mode: ipm_result.stats.oracle_mode,
         deterministic_mode_used: opts.deterministic,

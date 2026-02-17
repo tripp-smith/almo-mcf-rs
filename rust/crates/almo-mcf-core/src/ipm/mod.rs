@@ -40,6 +40,8 @@ pub struct IpmStats {
     pub barrier_times_ms: Vec<f64>,
     pub update_times_ms: Vec<f64>,
     pub spanner_update_times_ms: Vec<f64>,
+    pub amortized_spanner_update_ms: f64,
+    pub clamping_events: usize,
     pub instability_per_level: Vec<f64>,
     pub rebuild_counts: Vec<usize>,
     pub oracle_update_count: usize,
@@ -250,7 +252,7 @@ pub(crate) fn run_ipm_with_lower_bound(
     let clamp_config = opts.barrier_clamp_config();
     let potential = Potential::new_with_lower_bound(
         &upper,
-        opts.alpha,
+        opts.power_alpha.or(opts.alpha),
         None,
         opts.threads,
         cost_lower_bound,
@@ -265,7 +267,8 @@ pub(crate) fn run_ipm_with_lower_bound(
         Strategy::FullDynamic { rebuild_threshold } => rebuild_threshold,
     };
     let approx_kappa = opts
-        .approx_factor
+        .cycle_approx_kappa
+        .max(opts.approx_factor)
         .max((problem.edge_count().max(1) as f64).powf(-0.01));
     match opts.oracle_mode {
         OracleMode::Fallback => {
@@ -332,6 +335,8 @@ pub(crate) fn run_ipm_with_lower_bound(
         barrier_times_ms: Vec::new(),
         update_times_ms: Vec::new(),
         spanner_update_times_ms: Vec::new(),
+        amortized_spanner_update_ms: 0.0,
+        clamping_events: 0,
         instability_per_level: Vec::new(),
         rebuild_counts: Vec::new(),
         oracle_update_count: 0,
@@ -360,13 +365,27 @@ pub(crate) fn run_ipm_with_lower_bound(
     let mut hidden_stable_flow = HiddenStableFlow::default();
     let mut rebuilding_game = RebuildingGame::new(3);
 
-    for iter in 0..opts.max_iters {
+    let m = problem.edge_count().max(2) as f64;
+    let u = max_u.max(2.0);
+    let polylog_cap = (m.log2().powi(3) * ((u + 1.0).log2() + 1.0))
+        .ceil()
+        .max(10.0) as usize;
+    let effective_max_iters = opts.max_iters.min(polylog_cap);
+
+    for iter in 0..effective_max_iters {
         if let Some(limit) = opts.time_limit_ms {
             if start.elapsed().as_millis() as u64 >= limit {
                 termination = IpmTermination::TimeLimit;
                 break;
             }
         }
+
+        let progress = (iter as f64) / (effective_max_iters.max(1) as f64);
+        let dynamic_tolerance = if progress < 0.8 {
+            opts.tolerance.max(1e-6)
+        } else {
+            opts.tolerance.min(1e-12)
+        };
 
         let barrier_start = Instant::now();
         let (gradient, lengths, residuals, clamp_stats) =
@@ -381,6 +400,9 @@ pub(crate) fn run_ipm_with_lower_bound(
         stats
             .barrier_times_ms
             .push(barrier_start.elapsed().as_secs_f64() * 1000.0);
+        if clamp_stats.clamping_occurred() {
+            stats.clamping_events = stats.clamping_events.saturating_add(1);
+        }
         if opts.log_numerical_clamping && clamp_stats.clamping_occurred() {
             eprintln!(
                 "warning: numerical clamping occurred (total_clamps={}) at iter {}",
@@ -437,16 +459,16 @@ pub(crate) fn run_ipm_with_lower_bound(
         if current_potential <= termination_target {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 termination = IpmTermination::IterationLimit;
                 stats.terminated_by_max_iters = true;
             }
             break;
         }
-        if stats.last_gap < opts.tolerance {
+        if stats.last_gap < dynamic_tolerance {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 termination = IpmTermination::IterationLimit;
                 stats.terminated_by_max_iters = true;
             }
@@ -520,7 +542,7 @@ pub(crate) fn run_ipm_with_lower_bound(
             .cycle_times_ms
             .push(cycle_start.elapsed().as_secs_f64() * 1000.0);
         let Some(best) = best else {
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 termination = IpmTermination::IterationLimit;
                 stats.terminated_by_max_iters = true;
             } else {
@@ -546,7 +568,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         if best.ratio >= -opts.tolerance {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 termination = IpmTermination::IterationLimit;
                 stats.terminated_by_max_iters = true;
             }
@@ -575,7 +597,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         if kappa < potential.kappa_floor() {
             termination = IpmTermination::Converged;
             stats.iterations = iter;
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 termination = IpmTermination::IterationLimit;
                 stats.terminated_by_max_iters = true;
             }
@@ -682,7 +704,7 @@ pub(crate) fn run_ipm_with_lower_bound(
             } else {
                 IpmTermination::NoImprovingCycle
             };
-            if iter + 1 >= opts.max_iters {
+            if iter + 1 >= effective_max_iters {
                 stats.terminated_by_max_iters = true;
             }
             stats.iterations = iter;
@@ -690,7 +712,7 @@ pub(crate) fn run_ipm_with_lower_bound(
         }
 
         stats.iterations = iter + 1;
-        if iter + 1 >= opts.max_iters {
+        if iter + 1 >= effective_max_iters {
             termination = IpmTermination::IterationLimit;
             stats.terminated_by_max_iters = true;
             stats.final_gap_estimate = Some(gap_estimate);
@@ -707,6 +729,9 @@ pub(crate) fn run_ipm_with_lower_bound(
     if stats.final_gap_estimate.is_none() {
         stats.final_gap_estimate = stats.last_duality_gap_proxy;
     }
+    let total_update_ms: f64 = stats.spanner_update_times_ms.iter().sum();
+    let update_ops = stats.oracle_update_count.max(1) as f64;
+    stats.amortized_spanner_update_ms = total_update_ms / update_ops;
 
     Ok(IpmResult {
         flow,
