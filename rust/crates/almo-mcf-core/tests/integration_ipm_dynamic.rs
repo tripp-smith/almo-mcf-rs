@@ -29,7 +29,9 @@ fn integration_ipm_dynamic() {
     for _ in 0..20 {
         let p = path_problem(40);
         let opts = McfOptions {
-            strategy: Strategy::FullDynamic,
+            strategy: Strategy::FullDynamic {
+                rebuild_threshold: 25,
+            },
             oracle_mode: OracleMode::Dynamic,
             use_ipm: Some(true),
             use_scaling: Some(false),

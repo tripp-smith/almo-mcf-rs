@@ -26,7 +26,9 @@ fn build_problem(n: usize, m: usize) -> McfProblem {
 fn bench_dynamic_oracle(c: &mut Criterion) {
     let problem = build_problem(1_000, 10_000);
     let opts = McfOptions {
-        strategy: Strategy::FullDynamic,
+        strategy: Strategy::FullDynamic {
+            rebuild_threshold: 25,
+        },
         use_ipm: Some(true),
         max_iters: 100,
         ..McfOptions::default()
